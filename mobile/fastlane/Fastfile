@@ -37,13 +37,16 @@ platform :ios do
     import_certificate(certificate_path: p12_path, certificate_password: ENV["DIST_CERT_PASSWORD"], keychain_name: kc, keychain_password: kcp)
 
     # --- Profilo App Store: APP ---
-    sigh(api_key: api_key, app_identifier: APP_ID, platform: "ios", readonly: false)
+    # force: true => RIGENERA il profilo, così include l'entitlement packet-tunnel-provider
+    # (la capability NETWORK_EXTENSIONS e' stata abilitata dopo le prime build: un profilo
+    # stantio senza NE fa fallire l'avvio VPN con "An internal error occurred").
+    sigh(api_key: api_key, app_identifier: APP_ID, platform: "ios", readonly: false, force: true)
     app_profile = lane_context[SharedValues::SIGH_NAME]
     install_profile(lane_context[SharedValues::SIGH_PROFILE_PATH], lane_context[SharedValues::SIGH_UUID])
     UI.message("Profilo APP: #{app_profile}")
 
     # --- Profilo App Store: ESTENSIONE TUNNEL ---
-    sigh(api_key: api_key, app_identifier: EXT_ID, platform: "ios", readonly: false)
+    sigh(api_key: api_key, app_identifier: EXT_ID, platform: "ios", readonly: false, force: true)
     ext_profile = lane_context[SharedValues::SIGH_NAME]
     install_profile(lane_context[SharedValues::SIGH_PROFILE_PATH], lane_context[SharedValues::SIGH_UUID])
     UI.message("Profilo EXT: #{ext_profile}")
