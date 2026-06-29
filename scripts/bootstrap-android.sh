@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Genera il boilerplate Android mancante da template ufficiale RN 0.73.9 (dentro
+# node_modules/react-native/template), preservando i file custom gia' presenti
+# (transport/*.kt, res/mipmap, assets/*.cer). Idempotente: rigenera solo cio' che manca.
+#
+# Prerequisito: aver gia' fatto `npm ci` in mobile/ (serve node_modules/react-native/template).
+set -euo pipefail
+
+MOBILE_DIR="${1:-mobile}"
+PKG="com.oleventechnologies.iiprivatemessenger"
+PKG_PATH="com/oleventechnologies/iiprivatemessenger"
+APP_NAME="II Private Messenger"
+TEMPLATE="$MOBILE_DIR/node_modules/react-native/template/android"
+ANDROID="$MOBILE_DIR/android"
+
+[ -d "$TEMPLATE" ] || { echo "ERRORE: template RN non trovato ($TEMPLATE). Esegui prima 'npm ci' in $MOBILE_DIR."; exit 1; }
+
+echo "[bootstrap] da template $TEMPLATE"
+
+# 1) File Gradle/wrapper/root (copia se mancanti)
+for f in settings.gradle build.gradle gradle.properties gradlew gradlew.bat gradle/wrapper/gradle-wrapper.properties gradle/wrapper/gradle-wrapper.jar; do
+  if [ ! -f "$ANDROID/$f" ] && [ -f "$TEMPLATE/$f" ]; then
+    mkdir -p "$ANDROID/$(dirname "$f")"; cp "$TEMPLATE/$f" "$ANDROID/$f"; echo "  + $f"
+  fi
+done
+chmod +x "$ANDROID/gradlew" 2>/dev/null || true
+
+# 2) app/build.gradle + proguard + debug.keystore
+mkdir -p "$ANDROID/app"
+for f in build.gradle proguard-rules.pro; do
+  [ -f "$ANDROID/app/$f" ] || cp "$TEMPLATE/app/$f" "$ANDROID/app/$f" 2>/dev/null || true
+done
+mkdir -p "$ANDROID/app/src/debug"
+[ -f "$TEMPLATE/app/debug.keystore" ] && cp "$TEMPLATE/app/debug.keystore" "$ANDROID/app/debug.keystore" 2>/dev/null || true
+
+# 3) res values (strings/styles) + AndroidManifest (template) sotto il nostro package
+mkdir -p "$ANDROID/app/src/main/res/values"
+cp -n "$TEMPLATE/app/src/main/res/values/"* "$ANDROID/app/src/main/res/values/" 2>/dev/null || true
+[ -d "$TEMPLATE/app/src/main/res/drawable" ] && cp -rn "$TEMPLATE/app/src/main/res/drawable" "$ANDROID/app/src/main/res/" 2>/dev/null || true
+[ -d "$TEMPLATE/app/src/main/res/values-night" ] && cp -rn "$TEMPLATE/app/src/main/res/values-night" "$ANDROID/app/src/main/res/" 2>/dev/null || true
+
+# 4) MainActivity/MainApplication: copia dal template e riposiziona sotto il nostro package
+SRC_JAVA="$TEMPLATE/app/src/main/java/com/helloworld"
+DST_JAVA="$ANDROID/app/src/main/java/$PKG_PATH"
+mkdir -p "$DST_JAVA"
+for f in MainActivity.kt MainApplication.kt; do
+  if [ ! -f "$DST_JAVA/$f" ] && [ -f "$SRC_JAVA/$f" ]; then
+    sed "s/com\.helloworld/$PKG/g" "$SRC_JAVA/$f" > "$DST_JAVA/$f"; echo "  + java/$PKG_PATH/$f"
+  fi
+done
+
+# 5) strings.xml: app name corretto
+STR="$ANDROID/app/src/main/res/values/strings.xml"
+if [ -f "$STR" ]; then
+  sed -i "s|<string name=\"app_name\">[^<]*</string>|<string name=\"app_name\">$APP_NAME</string>|" "$STR" || true
+fi
+
+# 6) applicationId + namespace nel app/build.gradle
+APPGRADLE="$ANDROID/app/build.gradle"
+if [ -f "$APPGRADLE" ]; then
+  sed -i "s/applicationId \"com.helloworld\"/applicationId \"$PKG\"/" "$APPGRADLE" || true
+  sed -i "s/namespace \"com.helloworld\"/namespace \"$PKG\"/" "$APPGRADLE" || true
+  # vision-camera richiede minSdk 26
+  sed -i "s/minSdkVersion rootProject.ext.minSdkVersion/minSdkVersion 26/" "$APPGRADLE" || true
+fi
+# minSdk anche nel root build.gradle ext
+ROOTGRADLE="$ANDROID/build.gradle"
+[ -f "$ROOTGRADLE" ] && sed -i "s/minSdkVersion = 2[0-9]/minSdkVersion = 26/" "$ROOTGRADLE" || true
+
+# 7) Inietta AntiCensorshipPackage nel MainApplication (registrazione del modulo nativo)
+MAINAPP="$DST_JAVA/MainApplication.kt"
+if [ -f "$MAINAPP" ] && ! grep -q "AntiCensorshipPackage" "$MAINAPP"; then
+  # aggiungi l'import
+  sed -i "s|^package $PKG|package $PKG\n\nimport $PKG.transport.AntiCensorshipPackage|" "$MAINAPP" || true
+  # aggiungi add(AntiCensorshipPackage()) dopo PackageList(this).packages
+  sed -i "s|PackageList(this).packages|PackageList(this).packages.apply { add(AntiCensorshipPackage()) }|" "$MAINAPP" || true
+  echo "  ~ MainApplication: registrato AntiCensorshipPackage"
+fi
+
+# 8) AndroidManifest: usa il template e aggiungi permessi + VpnService
+MAN="$ANDROID/app/src/main/AndroidManifest.xml"
+[ -f "$MAN" ] || cp "$TEMPLATE/app/src/main/AndroidManifest.xml" "$MAN"
+if ! grep -q "BIND_VPN_SERVICE" "$MAN"; then
+  # permessi prima di <application>
+  sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <application|' "$MAN" || true
+  # servizio VpnService prima di </application>
+  sed -i 's|</application>|  <service android:name=".transport.Re4lityVpnService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse" android:exported="false"><intent-filter><action android:name="android.net.VpnService"/></intent-filter></service>\n  </application>|' "$MAN" || true
+  echo "  ~ AndroidManifest: permessi + Re4lityVpnService"
+fi
+
+# 9) Firebase google-services: applica il plugin SOLO se il file esiste (build non bloccata senza)
+if [ -f "$ANDROID/app/google-services.json" ] && ! grep -q "google-services" "$APPGRADLE"; then
+  echo 'apply plugin: "com.google.gms.google-services"' >> "$APPGRADLE"
+  echo "  ~ Firebase google-services plugin applicato"
+else
+  echo "  i google-services.json assente: push Firebase disattivato (build comunque OK)"
+fi
+
+echo "[bootstrap] completato. Ora: cd $MOBILE_DIR/android && ./gradlew assembleDebug"

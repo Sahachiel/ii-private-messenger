@@ -1,0 +1,88 @@
+name: iOS IPA
+
+# iOS si compila SOLO su macOS. Questo job gira su runner macOS di GitHub e firma con la
+# App Store Connect API (chiave .p8) presa dai GitHub Secrets — niente Mac fisico richiesto.
+# NOTA ONESTA: il progetto ios/ non esiste nel repo e viene generato qui da template; le prime
+# run quasi certamente falliranno (signing/provisioning/native) e vanno iterate.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Apple richiede iOS 26 SDK (Xcode 26) per caricare su App Store Connect.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Xcode/SDK in uso (diagnostica precoce)
+        run: |
+          xcodebuild -version
+          echo "--- SDK iOS disponibili ---"
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      # --- sing-box core (Libbox.xcframework) per il tunnel anti-censura ---
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+
+      - name: Cache Libbox.xcframework
+        id: libbox-cache
+        uses: actions/cache@v4
+        with:
+          path: mobile/ios-libbox/Libbox.xcframework
+          key: libbox-v1.11.1-${{ hashFiles('scripts/build-libbox.sh') }}
+
+      - name: Build Libbox (sing-box) se cache miss
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
+        run: bash scripts/build-libbox.sh
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+
+      - name: Install JS deps
+        working-directory: mobile
+        run: npm ci || npm install
+
+      - name: Bootstrap iOS project (da template RN 0.73.9)
+        run: bash scripts/bootstrap-ios.sh mobile
+
+      - name: CocoaPods
+        working-directory: mobile/ios
+        run: |
+          gem install cocoapods --no-document
+          pod install --repo-update
+
+      - name: Ruby/Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Apple capabilities (Network Extensions) app + estensione
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests || python3 -m pip install --quiet pyjwt cryptography requests
+          python3 scripts/asc_capabilities.py
+
+      - name: Build IPA + upload TestFlight (crea l'app via API se serve)
+        working-directory: mobile
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DIST_CERT_P12_BASE64: ${{ secrets.DIST_CERT_P12_BASE64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+        run: fastlane ios beta
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ii-private-messenger-ios
+          path: mobile/**/*.ipa
+          if-no-files-found: warn

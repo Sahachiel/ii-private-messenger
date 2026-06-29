@@ -1,0 +1,33 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const electron_1 = require("electron");
+const api = {
+    crypto: {
+        generateIdentity: () => electron_1.ipcRenderer.invoke('crypto.generateIdentity'),
+        encrypt: (peer, plaintext) => electron_1.ipcRenderer.invoke('crypto.encrypt', peer, plaintext),
+        decrypt: (peer, cipherB64) => electron_1.ipcRenderer.invoke('crypto.decrypt', peer, cipherB64),
+        buildSession: (peer, theirPubB64) => electron_1.ipcRenderer.invoke('crypto.buildSession', peer, theirPubB64),
+        getIdentityPub: () => electron_1.ipcRenderer.invoke('crypto.getIdentityPub'),
+    },
+    api: {
+        session: () => electron_1.ipcRenderer.invoke('api.session'),
+        register: (payload) => electron_1.ipcRenderer.invoke('api.register', payload),
+        login: (username, password) => electron_1.ipcRenderer.invoke('api.login', username, password),
+        logout: () => electron_1.ipcRenderer.invoke('api.logout'),
+        searchUsers: (q) => electron_1.ipcRenderer.invoke('api.searchUsers', q),
+        getUserKeys: (id) => electron_1.ipcRenderer.invoke('api.getUserKeys', id),
+        myNode: () => electron_1.ipcRenderer.invoke('api.myNode'),
+    },
+    socket: {
+        connect: (relayUrl, accessToken) => electron_1.ipcRenderer.invoke('socket.connect', relayUrl, accessToken),
+        send: (msg) => electron_1.ipcRenderer.invoke('socket.send', msg),
+        disconnect: () => electron_1.ipcRenderer.invoke('socket.disconnect'),
+        onMessage: (cb) => {
+            const fn = (_, m) => cb(m);
+            electron_1.ipcRenderer.on('socket.event', fn);
+            return () => electron_1.ipcRenderer.removeListener('socket.event', fn);
+        },
+    },
+};
+electron_1.contextBridge.exposeInMainWorld('iimsg', api);
+void {};

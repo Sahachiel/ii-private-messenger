@@ -1,0 +1,10 @@
+# WireGuard — relay-ru (spoke) ↔ backend core (hub)
+[Interface]
+PrivateKey = __RELAY_GE_PRIVATE_KEY__
+Address    = 10.77.0.11/24
+
+[Peer]
+PublicKey  = __BACKEND_PUBLIC_KEY__
+Endpoint   = __BACKEND_PUBLIC_IP__:51820
+AllowedIPs = 10.77.0.0/24
+PersistentKeepalive = 25

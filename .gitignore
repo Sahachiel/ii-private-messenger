@@ -1,0 +1,56 @@
+node_modules/
+.env
+.env.local
+*.env.production
+.secrets/
+wg-keys/
+infra/wireguard/*.conf
+!infra/wireguard/*.conf.template
+
+# Mobile native build artifacts
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/google-services.json
+mobile/android/app/*.keystore
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/ios/*.xcworkspace/xcuserdata/
+mobile/ios/IIPrivateMessenger/GoogleService-Info.plist
+
+# SSL pinning certs (bundle, not commit)
+mobile/android/app/src/main/assets/iimsg-api.cer
+mobile/ios/**/*.cer
+
+# Firebase admin creds
+firebase-admin*.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# --- segreti aggiuntivi / chiavi firma (mai su GitHub: vanno nei GitHub Secrets) ---
+**/group-keys/
+**/mtd-keys/
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+GoogleService-Info.plist
+
+# --- artefatti di build grandi (non in git: prodotti dalla CI) ---
+desktop/release/
+*.exe
+*.apk
+*.aab
+*.ipa
+*.dmg
+*.AppImage

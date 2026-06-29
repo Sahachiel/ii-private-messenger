@@ -1,0 +1,11 @@
+{
+  "name": "iimsg-security-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Suite riproducibile delle invarianti di sicurezza (isolamento gruppi, inviti, E2EE).",
+  "scripts": { "test": "node security-tests.js" },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  }
+}

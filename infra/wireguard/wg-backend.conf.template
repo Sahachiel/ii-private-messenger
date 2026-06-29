@@ -1,0 +1,25 @@
+# WireGuard — Backend core (hub). Peers: relay-ru, relay-ge, relay-fi.
+[Interface]
+PrivateKey = __BACKEND_PRIVATE_KEY__
+Address    = 10.77.0.1/24
+ListenPort = 51820
+PostUp   = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT
+
+[Peer]
+# relay-ru
+PublicKey  = __RELAY_RU_PUBLIC_KEY__
+AllowedIPs = 10.77.0.10/32
+PersistentKeepalive = 25
+
+[Peer]
+# relay-ge
+PublicKey  = __RELAY_GE_PUBLIC_KEY__
+AllowedIPs = 10.77.0.11/32
+PersistentKeepalive = 25
+
+[Peer]
+# relay-fi
+PublicKey  = __RELAY_FI_PUBLIC_KEY__
+AllowedIPs = 10.77.0.12/32
+PersistentKeepalive = 25

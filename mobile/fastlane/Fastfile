@@ -1,0 +1,106 @@
+default_platform(:ios)
+
+APP_ID = "com.oleventechnologies.iiprivatemessenger"
+EXT_ID = "com.oleventechnologies.iiprivatemessenger.tunnel"
+
+# Installa un .mobileprovision dove xcodebuild lo cerca (per nome) durante la firma manuale.
+def install_profile(path, uuid)
+  require "fileutils"
+  [
+    "~/Library/MobileDevice/Provisioning Profiles",
+    "~/Library/Developer/Xcode/UserData/Provisioning Profiles",
+  ].each do |d|
+    dir = File.expand_path(d)
+    FileUtils.mkdir_p(dir)
+    FileUtils.cp(path, File.join(dir, "#{uuid}.mobileprovision"))
+  end
+end
+
+platform :ios do
+  desc "Builda e carica su TestFlight. Firma MANUALE a 2 target (app + estensione tunnel) via App Store Connect API key + certificato di distribuzione importato."
+  lane :beta do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_KEY_P8_BASE64"],
+      is_key_content_base64: true,
+    )
+
+    # --- Keychain CI + certificato di distribuzione (riusabile) ---
+    require "base64"
+    require "tmpdir"
+    p12_path = File.join(Dir.tmpdir, "ii_dist.p12")
+    File.binwrite(p12_path, Base64.decode64(ENV["DIST_CERT_P12_BASE64"]))
+    kc  = "ii.keychain"
+    kcp = "ii_ci_pass"
+    create_keychain(name: kc, password: kcp, default_keychain: true, unlock: true, timeout: 3600, lock_when_sleeps: false)
+    import_certificate(certificate_path: p12_path, certificate_password: ENV["DIST_CERT_PASSWORD"], keychain_name: kc, keychain_password: kcp)
+
+    # --- Profilo App Store: APP ---
+    sigh(api_key: api_key, app_identifier: APP_ID, platform: "ios", readonly: false)
+    app_profile = lane_context[SharedValues::SIGH_NAME]
+    install_profile(lane_context[SharedValues::SIGH_PROFILE_PATH], lane_context[SharedValues::SIGH_UUID])
+    UI.message("Profilo APP: #{app_profile}")
+
+    # --- Profilo App Store: ESTENSIONE TUNNEL ---
+    sigh(api_key: api_key, app_identifier: EXT_ID, platform: "ios", readonly: false)
+    ext_profile = lane_context[SharedValues::SIGH_NAME]
+    install_profile(lane_context[SharedValues::SIGH_PROFILE_PATH], lane_context[SharedValues::SIGH_UUID])
+    UI.message("Profilo EXT: #{ext_profile}")
+
+    # --- Build number progressivo da TestFlight ---
+    begin
+      bn = latest_testflight_build_number(api_key: api_key, app_identifier: APP_ID, initial_build_number: 0) + 1
+      increment_build_number(xcodeproj: "ios/IIPrivateMessenger.xcodeproj", build_number: bn)
+    rescue => ex
+      UI.message("build number: skip (#{ex.message})")
+    end
+
+    # --- Firma manuale per ENTRAMBI i target ---
+    update_code_signing_settings(
+      path: "ios/IIPrivateMessenger.xcodeproj",
+      use_automatic_signing: false,
+      team_id: ENV["APPLE_TEAM_ID"],
+      code_sign_identity: "iPhone Distribution",
+      targets: ["IIPrivateMessenger"],
+      bundle_identifier: APP_ID,
+      profile_name: app_profile,
+    )
+    update_code_signing_settings(
+      path: "ios/IIPrivateMessenger.xcodeproj",
+      use_automatic_signing: false,
+      team_id: ENV["APPLE_TEAM_ID"],
+      code_sign_identity: "iPhone Distribution",
+      targets: ["PacketTunnel"],
+      bundle_identifier: EXT_ID,
+      profile_name: ext_profile,
+    )
+
+    build_app(
+      workspace: "ios/IIPrivateMessenger.xcworkspace",
+      scheme: "IIPrivateMessenger",
+      export_method: "app-store",
+      output_directory: "ios/build",
+      output_name: "II Private Messenger.ipa",
+      export_options: {
+        method: "app-store",
+        signingStyle: "manual",
+        teamID: ENV["APPLE_TEAM_ID"],
+        provisioningProfiles: {
+          APP_ID => app_profile,
+          EXT_ID => ext_profile,
+        },
+        uploadBitcode: false,
+        uploadSymbols: true,
+      },
+      xcargs: "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}",
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      app_identifier: APP_ID,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+    )
+  end
+end

@@ -1,0 +1,2 @@
+app_identifier("com.oleventechnologies.iiprivatemessenger")
+# apple_id / team_id sono forniti via App Store Connect API key (ENV ASC_*) nella CI.
