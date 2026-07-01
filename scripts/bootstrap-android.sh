@@ -73,7 +73,7 @@ ROOTGRADLE="$ANDROID/build.gradle"
 if [ -f "$ROOTGRADLE" ] && ! grep -q "oss.sonatype.org" "$ROOTGRADLE"; then
   cat >> "$ROOTGRADLE" <<'GRADLE'
 
-allprojects {
+subprojects {
     afterEvaluate { proj ->
         proj.repositories.removeAll { repo ->
             (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) &&
