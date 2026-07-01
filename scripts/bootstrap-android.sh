@@ -67,6 +67,24 @@ fi
 ROOTGRADLE="$ANDROID/build.gradle"
 [ -f "$ROOTGRADLE" ] && sed -i "s/minSdkVersion = 2[0-9]/minSdkVersion = 26/" "$ROOTGRADLE" || true
 
+# Rimuove il repo Sonatype OSS DISMESSO (oss.sonatype.org -> HTTP 504) che il plugin gradle di RN
+# aggiunge per le nightly. react-android/infer-annotation sono su Maven Central: senza questa rimozione
+# il 504 di Sonatype fa fallire la dependency resolution (regressione infra, non del codice).
+if [ -f "$ROOTGRADLE" ] && ! grep -q "oss.sonatype.org" "$ROOTGRADLE"; then
+  cat >> "$ROOTGRADLE" <<'GRADLE'
+
+allprojects {
+    afterEvaluate { proj ->
+        proj.repositories.removeAll { repo ->
+            (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) &&
+            repo.url.toString().contains('oss.sonatype.org')
+        }
+    }
+}
+GRADLE
+  echo "  ~ build.gradle: rimosso repo Sonatype OSS dismesso (fix 504)"
+fi
+
 # 7) Inietta AntiCensorshipPackage nel MainApplication (registrazione del modulo nativo)
 MAINAPP="$DST_JAVA/MainApplication.kt"
 if [ -f "$MAINAPP" ] && ! grep -q "AntiCensorshipPackage" "$MAINAPP"; then
