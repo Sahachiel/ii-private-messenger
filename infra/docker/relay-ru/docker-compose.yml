@@ -4,7 +4,11 @@ services:
   relay:
     build: ../../../relay
     restart: always
-    env_file: .env
+    # Due env_file come il backend: infra/.env (REDIS_PASSWORD per i container) + relay/.env
+    # (REDIS_URL/INTER_NODE_SECRET/config app). Senza il secondo, le var app restano vuote.
+    env_file:
+      - .env
+      - ../../../relay/.env
     environment:
       NODE_REGION: ru
     ports:

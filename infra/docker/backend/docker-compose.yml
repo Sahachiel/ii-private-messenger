@@ -4,7 +4,12 @@ services:
   backend:
     build: ../../../backend
     restart: always
-    env_file: .env
+    # DUE env_file: infra/.env (POSTGRES_*/REDIS_PASSWORD per i container) + backend/.env
+    # (DATABASE_URL/REDIS_URL con password per l'app). Il secondo era stato perso: senza,
+    # DATABASE_URL/REDIS_URL restano vuoti e il config ripiega su localhost -> ECONNREFUSED.
+    env_file:
+      - .env
+      - ../../../backend/.env
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
