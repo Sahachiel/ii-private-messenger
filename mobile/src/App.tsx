@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { store } from '@store/index';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { AppLockGate } from '@components/AppLockGate';
 import { theme } from '@utils/theme';
 import { ensureChannels, requestNotificationPermission, registerFcm } from '@services/notifications';
 import { mtd } from '@/xsec-mtd/engine/MTDEngine';
@@ -49,7 +50,9 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.bg }}>
         <SafeAreaProvider>
           <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
-          <RootNavigator />
+          <AppLockGate>
+            <RootNavigator />
+          </AppLockGate>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </Provider>

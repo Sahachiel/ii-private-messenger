@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from '@store/index';
 import { logoutUser } from '@store/authSlice';
 import { signal } from '@services/signal';
 import { transport, TransportState } from '@services/transport';
+import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry } from '@services/appLock';
 import { theme } from '@utils/theme';
 import { COUNTRY_LIST } from '@utils/countries';
 import { sha256Hex } from '@utils/crypto';
@@ -19,7 +20,10 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const [appVer, setAppVer] = useState('—');
   const [fingerprint, setFingerprint] = useState('—');
   const [screenProtect, setScreenProtect] = useState(true);
-  const [autoLock, setAutoLock] = useState<'1'|'5'|'30'|'never'>('5');
+  const graceToKey = (g: number): '1'|'5'|'30'|'never' => (g >= 3.15e9 ? 'never' : g >= 1800 ? '30' : g >= 300 ? '5' : '1');
+  const [autoLock, setAutoLock] = useState<'1'|'5'|'30'|'never'>(graceToKey(getGraceSec()));
+  const [lockEnabled, setLockEnabled] = useState(isLockEnabled());
+  const [biometry, setBiometry] = useState<string | null>(null);
   const [jailbroken, setJailbroken] = useState(false);
   const [antiCensorship, setAntiCensorship] = useState(transport.getManualEnabled());
   const [tunnelState, setTunnelState] = useState<TransportState>(transport.getState());
@@ -28,12 +32,32 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     DeviceInfo.getVersion && setAppVer(DeviceInfo.getVersion());
     DeviceInfo.isEmulator?.();
     (DeviceInfo as any).isJailBroken?.().then((v: boolean) => setJailbroken(!!v)).catch(() => {});
+    getSupportedBiometry().then(setBiometry).catch(() => {});
     (async () => {
       await signal.initialize();
       const idk = signal.getIdentityPublicKeyB64();
       setFingerprint(sha256Hex(idk).slice(0, 40));
     })();
   }, []);
+
+  // Attiva/disattiva il blocco app con biometria. In attivazione fa una verifica reale: se
+  // l'utente non riesce a sbloccare (o non ha biometria/passcode) non si attiva (niente lock-out).
+  const toggleAppLock = async (v: boolean) => {
+    if (v) {
+      const ok = await enableLock();
+      if (!ok) {
+        Alert.alert('Blocco app', 'Impossibile attivare. Configura impronta/Face ID o un codice di sblocco sul dispositivo, poi riprova.');
+        setLockEnabled(false);
+        return;
+      }
+      setLockEnabled(true);
+    } else {
+      await disableLock();
+      setLockEnabled(false);
+    }
+  };
+
+  const chooseAutoLock = (key: '1'|'5'|'30'|'never', sec: number) => { setAutoLock(key); setGraceSec(sec); };
 
   useEffect(() => transport.onState(setTunnelState), []);
 
@@ -91,14 +115,16 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <Row label="Encryption" value="Signal Protocol (X3DH)" />
           <Row label="Identity Fingerprint" value={fingerprint} mono />
           <SwitchRow label="Screen Security" value={screenProtect} onChange={toggleScreenProtect} />
-          <Pressable style={styles.row} onPress={() => Alert.alert('Auto-lock', '', [
-            { text: '1 min', onPress: () => setAutoLock('1') },
-            { text: '5 min', onPress: () => setAutoLock('5') },
-            { text: '30 min', onPress: () => setAutoLock('30') },
-            { text: 'Never', onPress: () => setAutoLock('never') },
+          <SwitchRow label={biometry ? `Blocco con ${biometry}` : 'Blocco app'} value={lockEnabled} onChange={toggleAppLock} />
+          <Pressable style={styles.row} onPress={() => Alert.alert('Blocco automatico', 'Richiedi lo sblocco dopo:', [
+            { text: 'Subito', onPress: () => chooseAutoLock('1', 0) },
+            { text: '1 min', onPress: () => chooseAutoLock('1', 60) },
+            { text: '5 min', onPress: () => chooseAutoLock('5', 300) },
+            { text: '30 min', onPress: () => chooseAutoLock('30', 1800) },
+            { text: 'Solo all’avvio', onPress: () => chooseAutoLock('never', 3.15e9) },
           ])}>
-            <Text style={styles.rowLabel}>Auto-lock</Text>
-            <Text style={styles.rowValue}>{autoLock === 'never' ? 'Never' : `${autoLock} min`}</Text>
+            <Text style={styles.rowLabel}>Blocco automatico</Text>
+            <Text style={styles.rowValue}>{autoLock === 'never' ? 'Solo all’avvio' : autoLock === '1' && getGraceSec() === 0 ? 'Subito' : `${autoLock} min`}</Text>
           </Pressable>
         </Section>
 
