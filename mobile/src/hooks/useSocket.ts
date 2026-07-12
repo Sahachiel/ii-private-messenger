@@ -3,8 +3,9 @@ import { Alert } from 'react-native';
 import { socket } from '@services/socket';
 import { groupsApi } from '@services/api';
 import { useAppDispatch, useAppSelector } from '@store/index';
-import { decryptIncoming, updateMessageStatus, setTyping, addMessage } from '@store/chatSlice';
+import { decryptIncoming, updateMessageStatus, setTyping, addMessage, upsertConversation } from '@store/chatSlice';
 import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from '@store/callSlice';
+import { upsertGroup } from '@store/groupsSlice';
 import { navigate } from '../navigation/navRef';
 import { appKv } from '@services/keychain';
 
@@ -84,8 +85,14 @@ export function useSocket(): void {
               { text: 'Accetta', onPress: async () => {
                 try {
                   const res = await groupsApi.join(ev.token as string);
-                  const gid = (res as any)?.gid;
-                  if (gid) navigate('Chat', { conversationId: gid, peerId: gid, peerName: nm, isGroup: true });
+                  const gid = res?.gid;
+                  if (!gid) return;
+                  const myId = appKv.getString('auth.userId') ?? '';
+                  let members: string[] = [myId];
+                  try { members = (await groupsApi.members(gid)).map((m) => m.user_id); } catch { /* placeholder */ }
+                  dispatch(upsertGroup({ id: gid, name: nm, memberIds: members, adminIds: [], createdAt: Date.now(), createdBy: ev.from ?? '' }));
+                  dispatch(upsertConversation({ id: gid, peerId: gid, peerName: nm, isGroup: true, unreadCount: 0, muted: false, archived: false, updatedAt: Date.now() }));
+                  navigate('Chat', { conversationId: gid, peerId: gid, peerName: nm, isGroup: true });
                 } catch { /* invito scaduto/non valido */ }
               } },
             ],

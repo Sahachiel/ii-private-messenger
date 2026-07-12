@@ -193,11 +193,12 @@ export type RelayMessage =
   | { type: 'typing_start'; to: string; conversationId: string; gid?: string; cap?: string }
   | { type: 'typing_stop'; to: string; conversationId: string; gid?: string; cap?: string }
   | { type: 'read_receipt'; to: string; messageId: string; conversationId: string; gid?: string; cap?: string }
+  | { type: 'contact_invite'; to: string; token: string; fromName?: string; fromCode?: string }
   | { type: 'ping'; ts?: number };
 
 export interface RelayEvent {
   type: 'message' | 'delivery_receipt' | 'read_receipt' | 'call_offer' | 'call_answer'
-      | 'ice_candidate' | 'call_end' | 'typing_start' | 'typing_stop' | 'presence' | 'pong' | 'error';
+      | 'ice_candidate' | 'call_end' | 'typing_start' | 'typing_stop' | 'contact_invite' | 'presence' | 'pong' | 'error';
   from?: string; to?: string;
   messageId?: string; conversationId?: string;
   gid?: string; epoch?: number;
@@ -206,4 +207,5 @@ export interface RelayEvent {
   reason?: string;
   status?: 'online' | 'offline'; userId?: string;
   ts?: number; error?: string;
+  token?: string; fromName?: string; fromCode?: string;
 }
