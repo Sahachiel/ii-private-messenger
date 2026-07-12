@@ -10,6 +10,7 @@ interface Props {
   onSetTimer: (ms?: number) => void;
   onClear: () => void;
   onClose: () => void;
+  onVerify?: () => void;
 }
 
 const TIMER_PRESETS: Array<[string, number | undefined]> = [
@@ -43,9 +44,16 @@ export const ChatHeaderMenu: React.FC<Props> = (p) => {
         ))}
       </View>
 
+      {p.onVerify && (
+        <Pressable onPress={p.onVerify} style={styles.verifyRow}>
+          <Text style={styles.verifyIcon}>🔒</Text>
+          <Text style={styles.verifyLabel}>Verifica identità</Text>
+        </Pressable>
+      )}
+
       <Pressable onPress={p.onClear} style={styles.dangerRow}>
         <TrashIcon size={18} color={theme.alert} />
-        <Text style={styles.dangerLabel}>Clear chat history (local)</Text>
+        <Text style={styles.dangerLabel}>Cancella cronologia (locale)</Text>
       </Pressable>
     </View>
   );
@@ -72,6 +80,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bgCard, borderWidth: 1, borderColor: theme.border,
   },
   timerLabel: { color: theme.text, fontSize: 12, fontWeight: '600' },
+
+  verifyRow: {
+    marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 14,
+    backgroundColor: theme.bgCard, borderRadius: 10, borderWidth: 1, borderColor: theme.border,
+  },
+  verifyIcon: { fontSize: 16 },
+  verifyLabel: { color: theme.text, fontSize: 13, fontWeight: '700' },
 
   dangerRow: {
     marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 12,

@@ -1,9 +1,27 @@
 import { IpcMain } from 'electron';
+import { createHash } from 'crypto';
 import nacl from 'tweetnacl';
 import util from 'tweetnacl-util';
 import keytar from 'keytar';
 import Store from 'electron-store';
 import { initAlice, initBob, drEncrypt, drDecrypt, DRSession, DRHeader } from './doubleRatchet';
+
+// Numero di sicurezza — DEVE restare in sync con mobile/src/utils/crypto.ts (stessa versione,
+// iterazioni, canonicalizzazione), altrimenti telefono e desktop mostrerebbero numeri diversi.
+const SN_VERSION = 'iimsg-sn-v1';
+const SN_ITERATIONS = 1000;
+function sn_sha256hex(s: string): string { return createHash('sha256').update(s, 'utf8').digest('hex'); }
+function computeSafetyNumber(myIk: string, theirIk: string): string {
+  const [k1, k2] = [myIk, theirIk].sort();
+  let h = sn_sha256hex(`${SN_VERSION}|${k1}|${k2}`);
+  for (let i = 1; i < SN_ITERATIONS; i++) h = sn_sha256hex(h);
+  // 12 gruppi da 5 cifre, ciascuno da 20 bit dell'hash → cifre uniformi, senza blocco di zeri.
+  let out = '';
+  for (let i = 0; i < 12; i++) {
+    out += (parseInt(h.slice(i * 5, i * 5 + 5), 16) % 100000).toString().padStart(5, '0');
+  }
+  return (out.match(/.{5}/g) as string[]).join(' ');
+}
 
 // E2EE pairwise DESKTOP — allineato a mobile/src/services/signal.ts (Double Ratchet, PFS/PCS).
 // Formato identico al mobile => messaggi/file/vocali interoperano telefono<->PC.
@@ -70,6 +88,12 @@ export function registerCryptoIpc(ipc: IpcMain): void {
   });
 
   ipc.handle('crypto.getIdentityPub', async () => b64.enc((await getIdentity()).pub));
+
+  // Numero di sicurezza con l'identità del peer (b64). Stesso algoritmo del mobile → i numeri coincidono.
+  ipc.handle('crypto.safetyNumber', async (_e, theirIk: string) => {
+    const myIk = b64.enc((await getIdentity()).pub);
+    return computeSafetyNumber(myIk, theirIk);
+  });
 
   // bundle = { identityPublicKey, signedPreKey: { publicKey, ... } } (da api.getUserKeys)
   ipc.handle('crypto.buildSession', async (_e, peer: string, bundle: any) => {

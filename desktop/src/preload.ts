@@ -9,6 +9,7 @@ const api = {
     decrypt: (peer: string, cipherB64: string) => ipcRenderer.invoke('crypto.decrypt', peer, cipherB64),
     buildSession: (peer: string, bundle: unknown) => ipcRenderer.invoke('crypto.buildSession', peer, bundle),
     getIdentityPub: () => ipcRenderer.invoke('crypto.getIdentityPub'),
+    safetyNumber: (theirIk: string) => ipcRenderer.invoke('crypto.safetyNumber', theirIk),
   },
   api: {
     session: () => ipcRenderer.invoke('api.session'),

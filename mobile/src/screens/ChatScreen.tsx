@@ -324,6 +324,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
           onSetTimer={(ms) => dispatch(setDisappearingTimer({ conversationId, ms }))}
           onClear={() => { dispatch(clearConversation({ conversationId })); headerSheet.current?.close(); }}
           onClose={() => headerSheet.current?.close()}
+          onVerify={isGroup ? () => { headerSheet.current?.close(); navigation.navigate('SafetyNumber', { gid: conversationId, peerName: conversation?.peerName ?? peerName }); } : undefined}
         />
       </BottomSheet>
     </SafeAreaView>

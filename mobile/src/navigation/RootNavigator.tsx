@@ -28,6 +28,7 @@ import { GroupCreateScreen } from '@screens/GroupCreateScreen';
 import { GroupInviteScreen } from '@screens/GroupInviteScreen';
 import { GroupInfoScreen } from '@screens/GroupInfoScreen';
 import { QRPairingScreen } from '@screens/QRPairingScreen';
+import { SafetyNumberScreen } from '@screens/SafetyNumberScreen';
 import { theme } from '@utils/theme';
 import { HomeIcon, ContactsIcon, ShieldIcon, SettingsIcon } from '@components/Icons';
 
@@ -99,6 +100,7 @@ export const RootNavigator: React.FC = () => {
             <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
             <Stack.Screen name="GroupInvite" component={GroupInviteScreen} />
             <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
+            <Stack.Screen name="SafetyNumber" component={SafetyNumberScreen} />
             <Stack.Screen name="QRPairing" component={QRPairingScreen} />
           </>
         ) : (

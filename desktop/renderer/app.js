@@ -234,6 +234,35 @@ async function leaveGroupFlow(gid) {
   toast('Gruppo rimosso', 'ok');
 }
 
+// Verifica identità (numero di sicurezza) per una chat 1:1. Risolve l'altro membro, ne prende
+// l'identity key e calcola il numero a 60 cifre (stesso algoritmo del mobile → i numeri coincidono).
+async function verifyGroupFlow(gid) {
+  try {
+    const members = await iimsg.groups.members(gid);
+    const others = members.map((m) => m.user_id).filter((u) => u !== state.me.userId);
+    if (others.length === 0) { toast('Nessun altro membro da verificare.'); return; }
+    if (others.length > 1) { toast('La verifica è disponibile solo per le chat 1:1.'); return; }
+    const bundle = await iimsg.api.getUserKeys(others[0]);
+    const sn = await iimsg.crypto.safetyNumber(bundle.identityPublicKey);
+    showSafetyDialog((state.groups[gid] && state.groups[gid].name) || 'Contatto', sn);
+  } catch (e) { toast('Impossibile calcolare il numero di sicurezza: ' + (e.message || e)); }
+}
+
+function showSafetyDialog(peerName, sn) {
+  const overlay = el('div', { class: 'lightbox', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
+  const card = el('div', { style: 'background:#FFFFFF;padding:24px;border-radius:14px;max-width:460px;color:#111B21;font:13px system-ui;text-align:center;' });
+  card.appendChild(el('div', { style: 'font-weight:800;margin-bottom:4px;font-size:16px;' }, 'Verifica identità'));
+  card.appendChild(el('div', { style: 'opacity:.7;margin-bottom:14px;' }, peerName));
+  const grid = el('div', { style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#F0F2F5;border:1px solid #E9EDEF;border-radius:10px;padding:16px;font:600 17px ui-monospace,monospace;letter-spacing:1px;color:#111B21;' });
+  for (const part of sn.split(' ')) grid.appendChild(el('div', {}, part));
+  card.appendChild(grid);
+  card.appendChild(el('div', { style: 'opacity:.7;margin:14px 0;line-height:1.4;font-size:12px;' },
+    'Confronta questo numero con ' + peerName + ' di persona o su un canale già fidato. Se è identico su entrambi i dispositivi, nessuno si è inserito nella conversazione.'));
+  card.appendChild(el('button', { onClick: () => { navigator.clipboard.writeText(sn); toast('Numero copiato', 'ok'); } }, 'Copia numero'));
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
 async function inviteToGroup(gid) {
   try {
     const res = await iimsg.groups.invite(gid, { requires_approval: false, max_uses: 5, ttl_seconds: 86400 });
@@ -325,6 +354,7 @@ function renderGroupChat(gid) {
       el('div', { class: 'sub' }, '🔒 GRUPPO E2E · SENDER KEYS · ' + (g.memberIds ? g.memberIds.length : 0) + ' membri'),
     ]),
     el('div', { class: 'call-buttons' }, [
+      el('button', { class: 'call-hdr-btn', title: 'Verifica identità', onClick: () => verifyGroupFlow(gid) }, '🔒'),
       el('button', { class: 'call-hdr-btn', title: 'Invita nel gruppo', onClick: () => inviteToGroup(gid) }, '➕'),
     ]),
   ]));
