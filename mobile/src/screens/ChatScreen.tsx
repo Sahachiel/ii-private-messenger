@@ -27,11 +27,11 @@ import { pickMedia } from '@services/media';
 import { Message, ReplyRef, MediaRef } from '../types';
 
 function messagePreview(m: Message): string {
-  if (m.type === 'voice')    return '🎤 Voice message';
-  if (m.type === 'image')    return '📷 Photo';
+  if (m.type === 'voice')    return '🎤 Messaggio vocale';
+  if (m.type === 'image')    return '📷 Foto';
   if (m.type === 'video')    return '🎬 Video';
   if (m.type === 'file')     return '📎 File';
-  if (m.type === 'location') return '📍 Location';
+  if (m.type === 'location') return '📍 Posizione';
   return m.body || '…';
 }
 
@@ -99,10 +99,10 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
       }
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     } catch (e: any) {
-      const reason = typeof e === 'string' ? e : (e?.message ?? 'unknown');
+      const reason = typeof e === 'string' ? e : (e?.message ?? 'errore sconosciuto');
       if (reason === 'device_compromised') {
-        Alert.alert('Device compromised', 'Sending disabled — your device is flagged as compromised.');
-      } else Alert.alert('Send failed', reason);
+        Alert.alert('Dispositivo compromesso', 'Invio disabilitato — il dispositivo risulta compromesso.');
+      } else Alert.alert('Invio fallito', reason);
     }
   };
 
@@ -115,7 +115,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
       } else {
         await dispatch(sendMessage({ conversationId, recipientId: peerId, kind, body: '', media })).unwrap();
       }
-    } catch (e: any) { Alert.alert('Attachment', e?.message ?? 'failed'); }
+    } catch (e: any) { Alert.alert('Allegato', e?.message ?? 'non riuscito'); }
   };
 
   const sendVoice = async (media: MediaRef): Promise<void> => {
@@ -125,7 +125,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
       } else {
         await dispatch(sendMessage({ conversationId, recipientId: peerId, kind: 'voice', body: '', media })).unwrap();
       }
-    } catch (e: any) { Alert.alert('Send failed', e?.message ?? 'voice'); }
+    } catch (e: any) { Alert.alert('Invio fallito', e?.message ?? 'vocale'); }
   };
 
   const openActionSheet = (msg: Message): void => {
@@ -254,7 +254,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
           </Pressable>
           <View style={styles.inputWrap}>
             <TextInput
-              placeholder="Encrypted message…"
+              placeholder="Messaggio cifrato…"
               placeholderTextColor={theme.textDim}
               value={text}
               onChangeText={onType}

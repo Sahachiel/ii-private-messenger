@@ -33,7 +33,7 @@ export const CountryPicker: React.FC<Props> = ({ value, onChange, label = 'Count
             <View style={{ width: 40 }} />
           </View>
           <TextInput
-            placeholder="Search…"
+            placeholder="Cerca…"
             placeholderTextColor={theme.textDim}
             value={q}
             onChangeText={setQ}

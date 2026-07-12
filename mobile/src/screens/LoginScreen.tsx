@@ -25,25 +25,25 @@ export const LoginScreen: React.FC = () => {
 
   const submit = async () => {
     try { await dispatch(loginUser({ username, password })).unwrap(); }
-    catch (e: any) { Alert.alert('Login failed', typeof e === 'string' ? e : e?.message ?? 'unknown'); }
+    catch (e: any) { Alert.alert('Accesso fallito', typeof e === 'string' ? e : e?.message ?? 'errore sconosciuto'); }
   };
 
   const bio = async () => {
     try { await dispatch(biometricLogin()).unwrap(); }
-    catch (e: any) { Alert.alert('Biometric failed', typeof e === 'string' ? e : e?.message ?? 'unknown'); }
+    catch (e: any) { Alert.alert('Biometria fallita', typeof e === 'string' ? e : e?.message ?? 'errore sconosciuto'); }
   };
 
   return (
     <SafeAreaView style={styles.c}>
       <View style={{ padding: 24 }}>
-        <Text style={styles.title}>SIGN IN</Text>
-        <Input label="Username" autoCapitalize="none" autoCorrect={false} value={username} onChangeText={setU} />
+        <Text style={styles.title}>ACCEDI</Text>
+        <Input label="Nome utente" autoCapitalize="none" autoCorrect={false} value={username} onChangeText={setU} />
         <Input label="Password" secureTextEntry value={password} onChangeText={setP} />
         {error && <Text style={styles.err}>{error}</Text>}
-        <Button title="Authenticate" onPress={submit} loading={loading} style={{ marginTop: 12 }} />
+        <Button title="Accedi" onPress={submit} loading={loading} style={{ marginTop: 12 }} />
         {biometric && (
           <Pressable onPress={bio} style={styles.bio}>
-            <Text style={styles.bioText}>USE {biometric.toUpperCase()}</Text>
+            <Text style={styles.bioText}>USA {biometric.toUpperCase()}</Text>
           </Pressable>
         )}
       </View>

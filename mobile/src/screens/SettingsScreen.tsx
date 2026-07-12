@@ -90,35 +90,35 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     void applyScreenProtect(v); // FLAG_SECURE nativo (anti-screenshot)
   };
 
-  const confirmLogout = () => Alert.alert('Sign out', 'Your session and keys remain on device.', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Sign out', style: 'destructive', onPress: () => dispatch(logoutUser()) },
+  const confirmLogout = () => Alert.alert('Esci', 'La sessione e le chiavi restano sul dispositivo.', [
+    { text: 'Annulla', style: 'cancel' },
+    { text: 'Esci', style: 'destructive', onPress: () => dispatch(logoutUser()) },
   ]);
 
   return (
     <SafeAreaView style={styles.c}>
       <ScrollView contentContainerStyle={{ padding: 20 }}>
-        <Text style={styles.title}>SETTINGS</Text>
+        <Text style={styles.title}>IMPOSTAZIONI</Text>
 
         {jailbroken && (
           <View style={styles.warn}>
-            <Text style={styles.warnTitle}>⚠ COMPROMISED DEVICE</Text>
-            <Text style={styles.warnText}>Root/jailbreak detected. End-to-end encryption guarantees may be weakened.</Text>
+            <Text style={styles.warnTitle}>⚠ DISPOSITIVO COMPROMESSO</Text>
+            <Text style={styles.warnText}>Rilevato root/jailbreak. Le garanzie di cifratura end-to-end potrebbero essere indebolite.</Text>
           </View>
         )}
 
-        <Section title="Profile">
+        <Section title="Profilo">
           <Pressable style={styles.row} onPress={() => navigation.navigate('Profile')}>
-            <Text style={styles.rowLabel}>Display Name</Text>
+            <Text style={styles.rowLabel}>Nome visualizzato</Text>
             <Text style={styles.rowValue}>{user?.displayName}</Text>
           </Pressable>
-          <Row label="Username" value={`@${user?.username ?? '—'}`} />
+          <Row label="Nome utente" value={`@${user?.username ?? '—'}`} />
         </Section>
 
-        <Section title="Security">
-          <Row label="Encryption" value="Signal Protocol (X3DH)" />
-          <Row label="Identity Fingerprint" value={fingerprint} mono />
-          <SwitchRow label="Screen Security" value={screenProtect} onChange={toggleScreenProtect} />
+        <Section title="Sicurezza">
+          <Row label="Cifratura" value="Signal Protocol (X3DH)" />
+          <Row label="Impronta identità" value={fingerprint} mono />
+          <SwitchRow label="Sicurezza schermo" value={screenProtect} onChange={toggleScreenProtect} />
           <SwitchRow label={biometry ? `Blocco con ${biometry}` : 'Blocco app'} value={lockEnabled} onChange={toggleAppLock} />
           <Pressable style={styles.row} onPress={() => Alert.alert('Blocco automatico', 'Richiedi lo sblocco dopo:', [
             { text: 'Subito', onPress: () => chooseAutoLock('1', 0) },
@@ -133,20 +133,20 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <SwitchRow label="Anteprima notifiche" value={notifPreview} onChange={(v) => { setNotifPreview(v); setNotifyContentHidden(!v); }} />
         </Section>
 
-        <Section title="Routing">
-          <Row label="Region" value={`${regionEntry?.flag ?? ''} ${region?.toUpperCase() ?? '—'}`} />
-          <SwitchRow label="Anti-Censorship" value={antiCensorship} onChange={toggleAntiCensorship} />
+        <Section title="Rete">
+          <Row label="Regione" value={`${regionEntry?.flag ?? ''} ${region?.toUpperCase() ?? '—'}`} />
+          <SwitchRow label="Anti-censura" value={antiCensorship} onChange={toggleAntiCensorship} />
           <Row label="Tunnel" value={tunnelLabel(tunnelState)} />
         </Section>
 
-        <Section title="About">
+        <Section title="Info">
           <Image source={require('../assets/icons/ICONA 2.png')} style={styles.brandLogo} resizeMode="contain" />
-          <Row label="Version" value={appVer} />
-          <Row label="Company" value="OLEVEN Technologies XSEC" />
+          <Row label="Versione" value={appVer} />
+          <Row label="Azienda" value="OLEVEN Technologies XSEC" />
         </Section>
 
         <Pressable style={styles.logout} onPress={confirmLogout}>
-          <Text style={styles.logoutText}>SIGN OUT</Text>
+          <Text style={styles.logoutText}>ESCI</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -155,9 +155,9 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
 function tunnelLabel(s: TransportState): string {
   switch (s) {
-    case 'connected': return 'Connected';
-    case 'connecting': return 'Connecting…';
-    case 'error': return 'Error';
+    case 'connected': return 'Connesso';
+    case 'connecting': return 'Connessione…';
+    case 'error': return 'Errore';
     default: return 'Off';
   }
 }
