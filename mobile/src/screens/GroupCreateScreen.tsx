@@ -27,7 +27,9 @@ export const GroupCreateScreen: React.FC<{ navigation: any }> = ({ navigation })
     });
   };
 
-  const canCreate = name.trim().length >= 2 && selected.size >= 1;
+  // Si può creare un gruppo VUOTO (senza contatti pre-selezionati) e invitare dopo col QR/link.
+  // Prima serviva >=1 membro dai contatti: senza contatti era impossibile creare qualsiasi gruppo.
+  const canCreate = name.trim().length >= 2;
 
   const create = async (): Promise<void> => {
     if (!canCreate) return;
@@ -95,7 +97,7 @@ export const GroupCreateScreen: React.FC<{ navigation: any }> = ({ navigation })
         ItemSeparatorComponent={() => <View style={styles.sep} />}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>{loading ? 'Loading contacts…' : 'No contacts yet. Add some first.'}</Text>
+            <Text style={styles.emptyText}>{loading ? 'Loading contacts…' : 'Nessun contatto: crea il gruppo e invita con QR/link.'}</Text>
           </View>
         }
       />

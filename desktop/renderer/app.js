@@ -126,8 +126,35 @@ async function loadGroups() {
   persistGroups();
 }
 
+// Electron NON supporta window.prompt() (ritorna sempre null) → modal di input custom.
+function askInput(title, placeholder, opts) {
+  return new Promise((resolve) => {
+    const overlay = el('div', { class: 'lightbox' });
+    const card = el('div', { style: 'background:#141a2e;padding:22px;border-radius:14px;max-width:440px;width:88%;color:#fff;font:13px system-ui;' });
+    card.appendChild(el('div', { style: 'font-weight:700;margin-bottom:12px;font-size:15px;' }, title));
+    const input = el(opts && opts.multiline ? 'textarea' : 'input', {
+      placeholder: placeholder || '',
+      style: 'width:100%;box-sizing:border-box;padding:10px;background:#0b0f1e;color:#fff;border:1px solid #2a3350;border-radius:8px;font:13px system-ui;' + (opts && opts.multiline ? 'height:72px;resize:vertical;' : ''),
+    });
+    card.appendChild(input);
+    const done = (v) => { overlay.remove(); resolve(v); };
+    const row = el('div', { style: 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px;' }, [
+      el('button', { class: 'ghost', onClick: () => done(null) }, 'Annulla'),
+      el('button', { onClick: () => done(input.value.trim() || null) }, 'OK'),
+    ]);
+    card.appendChild(row);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' && !(opts && opts.multiline)) done(input.value.trim() || null);
+      if (e.key === 'Escape') done(null);
+    };
+    setTimeout(() => input.focus(), 30);
+  });
+}
+
 async function createGroupFlow() {
-  const name = prompt('Nome del gruppo (solo lato client — il server non lo vede):');
+  const name = await askInput('Nuovo gruppo', 'Nome del gruppo (solo lato client)…');
   if (!name) return;
   try {
     const res = await iimsg.groups.create(50);
@@ -138,11 +165,24 @@ async function createGroupFlow() {
   } catch (e) { toast('Creazione gruppo fallita: ' + (e.message || e)); }
 }
 
+// Estrae il token invito da qualunque forma: token grezzo, JSON {k:'gi',t:...} (QR mobile),
+// oppure deep-link iimsg://join?t=<token>.
+function extractInviteToken(raw) {
+  const s = (raw || '').trim();
+  if (!s) return '';
+  try { const o = JSON.parse(s); if (o && o.k === 'gi' && typeof o.t === 'string') return o.t; } catch {}
+  const m = s.match(/[?&]t=([^&\s]+)/);
+  if (m) { try { return decodeURIComponent(m[1]); } catch { return m[1]; } }
+  return s;
+}
+
 async function joinGroupFlow() {
-  const token = prompt('Incolla il token di invito al gruppo:');
-  if (!token) return;
+  const input = await askInput('Unisciti a un gruppo', 'Incolla il token, il QR {k:"gi",…} o il link iimsg://join…', { multiline: true });
+  if (!input) return;
+  const token = extractInviteToken(input);
+  if (!token) { toast('Invito non riconosciuto'); return; }
   try {
-    const res = await iimsg.groups.join(token.trim());
+    const res = await iimsg.groups.join(token);
     if (res.status === 'joined' || res.status === 'already_member') {
       if (!state.groups[res.gid]) state.groups[res.gid] = { id: res.gid, name: 'Gruppo ' + res.gid.slice(0, 6), epoch: 0, memberIds: [], messages: [] };
       state.activeGroup = res.gid; state.activeChat = null;
@@ -172,7 +212,10 @@ function showInviteDialog(token) {
   card.appendChild(ta);
   const qr = el('div', { style: 'margin:12px auto;' });
   if (typeof window.qrcode === 'function') {
-    try { const q = window.qrcode(0, 'M'); q.addData(token); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); const svg = qr.querySelector('svg'); if (svg) { svg.setAttribute('width', '200'); svg.setAttribute('height', '200'); } } catch {}
+    // Il mobile scansiona SOLO il formato {k:'gi', t:<token>} (GroupInviteScreen). Codificare il
+    // token grezzo faceva "QR non valido/formato non riconosciuto" sul telefono.
+    const qrPayload = JSON.stringify({ k: 'gi', t: token });
+    try { const q = window.qrcode(0, 'M'); q.addData(qrPayload); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); const svg = qr.querySelector('svg'); if (svg) { svg.setAttribute('width', '200'); svg.setAttribute('height', '200'); } } catch {}
   }
   card.appendChild(qr);
   card.appendChild(el('button', { onClick: () => { navigator.clipboard.writeText(token); toast('Token copiato', 'ok'); } }, 'Copia token'));
