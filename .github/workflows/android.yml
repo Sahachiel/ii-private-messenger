@@ -57,9 +57,10 @@ jobs:
           path: mobile/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # Release firmato: opzionale, solo se ci sono i secret del keystore.
-      - name: Build signed release APK (se keystore presente)
-        continue-on-error: true
+      # APK RELEASE: impacchetta il bundle JS -> funziona STANDALONE (niente Metro).
+      # Firma col keystore di produzione se i secret ci sono, altrimenti con la chiave debug
+      # del template (comunque installabile per sideload/test).
+      - name: Build RELEASE APK (JS bundled, standalone)
         working-directory: mobile/android
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -69,10 +70,11 @@ jobs:
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/iimsg-release.keystore
-            ./gradlew assembleRelease --no-daemon --stacktrace || echo "release richiede config signing in app/build.gradle"
+            echo "Keystore di produzione presente."
           else
-            echo "Nessun keystore: salto l'APK release (resta il debug installabile)."
+            echo "Nessun keystore di produzione: il release verra' firmato con la chiave debug del template (installabile per test)."
           fi
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK release (se presente)
         uses: actions/upload-artifact@v4
