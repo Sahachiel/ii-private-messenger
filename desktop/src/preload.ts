@@ -7,7 +7,7 @@ const api = {
     generateIdentity: () => ipcRenderer.invoke('crypto.generateIdentity'),
     encrypt: (peer: string, plaintext: string) => ipcRenderer.invoke('crypto.encrypt', peer, plaintext),
     decrypt: (peer: string, cipherB64: string) => ipcRenderer.invoke('crypto.decrypt', peer, cipherB64),
-    buildSession: (peer: string, theirPubB64: string) => ipcRenderer.invoke('crypto.buildSession', peer, theirPubB64),
+    buildSession: (peer: string, bundle: unknown) => ipcRenderer.invoke('crypto.buildSession', peer, bundle),
     getIdentityPub: () => ipcRenderer.invoke('crypto.getIdentityPub'),
   },
   api: {

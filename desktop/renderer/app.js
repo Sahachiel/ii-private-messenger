@@ -242,7 +242,7 @@ function renderSidebar() {
             state.chats[u.id] = { peerId: u.id, peerName: u.display_name ?? u.username, messages: [] };
             try {
               const bundle = await iimsg.api.getUserKeys(u.id);
-              await iimsg.crypto.buildSession(u.id, bundle.identityPublicKey);
+              await iimsg.crypto.buildSession(u.id, bundle);
             } catch (e) { console.error('session build fail', e); }
           }
           render();
@@ -526,7 +526,7 @@ iimsg.socket.onMessage(async (ev) => {
         state.chats[ev.from] = { peerId: ev.from, peerName: ev.from.slice(0, 8), messages: [] };
         try {
           const bundle = await iimsg.api.getUserKeys(ev.from);
-          await iimsg.crypto.buildSession(ev.from, bundle.identityPublicKey);
+          await iimsg.crypto.buildSession(ev.from, bundle);
         } catch {}
       }
       const plain = await iimsg.crypto.decrypt(ev.from, payload.ciphertext);
