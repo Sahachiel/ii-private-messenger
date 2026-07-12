@@ -16,6 +16,8 @@ const api = {
     login: (username: string, password: string) => ipcRenderer.invoke('api.login', username, password),
     logout: () => ipcRenderer.invoke('api.logout'),
     searchUsers: (q: string) => ipcRenderer.invoke('api.searchUsers', q),
+    myCode: () => ipcRenderer.invoke('api.myCode'),
+    byCode: (code: string) => ipcRenderer.invoke('api.byCode', code),
     getUserKeys: (id: string) => ipcRenderer.invoke('api.getUserKeys', id),
     myNode: () => ipcRenderer.invoke('api.myNode'),
   },

@@ -195,6 +195,32 @@ async function joinGroupFlow() {
   } catch (e) { toast('Ingresso fallito: ' + (e.message || e)); }
 }
 
+// Aggiunge un contatto col suo CODICE: risolve il codice → crea un gruppo 1:1 con invito
+// vincolato al destinatario (monouso, senza approvazione) → recapita l'invito "seamless" via
+// relay (contact_invite). Appena l'altro accetta, entra nel gruppo e la chat è attiva ed E2EE.
+async function addByCodeFlow(rawCode) {
+  const q = (rawCode || '').trim().toUpperCase();
+  if (q.length < 6) { toast('Codice non valido (es. IIM-XXXX-XXXX)'); return; }
+  if (state.me.code && q === state.me.code.toUpperCase()) { toast('Questo è il tuo codice'); return; }
+  try {
+    const found = await iimsg.api.byCode(q);
+    if (!found) { toast('Nessun utente con questo codice'); return; }
+    if (found.id === state.me.userId) { toast('Questo è il tuo codice'); return; }
+    const g = await iimsg.groups.create(2);
+    const inv = await iimsg.groups.invite(g.id, {
+      bound_user_id: found.id, requires_approval: false, max_uses: 1, ttl_seconds: 7 * 24 * 3600,
+    });
+    const myName = state.me.displayName || state.me.username || 'Qualcuno';
+    await iimsg.socket.send({ type: 'contact_invite', to: found.id, token: inv.token, fromName: myName, fromCode: state.me.code || '' });
+    const nm = found.displayName || 'Contatto';
+    state.groups[g.id] = { id: g.id, name: nm, epoch: g.epoch, memberIds: [state.me.userId], messages: [] };
+    state.distSent[g.id] = -1; // forza distribuzione sender key al primo invio
+    state.activeGroup = g.id; state.activeChat = null;
+    persistGroups(); render();
+    toast('Richiesta inviata a ' + nm + '. Appena accetta, la chat è attiva.', 'ok');
+  } catch (e) { toast('Aggiunta contatto fallita: ' + (e.message || e)); }
+}
+
 async function leaveGroupFlow(gid) {
   const g = state.groups[gid];
   if (!g) return;
@@ -446,17 +472,28 @@ function renderSidebar() {
     el('button', { onClick: async () => { await iimsg.api.logout(); location.reload(); } }, 'LOGOUT'),
   ]);
   side.appendChild(header);
+  // Discovery SOLO-CODICE: niente ricerca per username. Si aggiunge un contatto col suo codice.
   const searchBox = el('div', { class: 'search-box' });
-  const searchInput = el('input', {
-    placeholder: 'Search username…',
-    onInput: async (e) => {
-      const q = e.target.value.trim();
-      if (q.length < 2) { state.users = []; renderResults(); return; }
-      try { state.users = await iimsg.api.searchUsers(q); renderResults(); } catch {}
-    },
+  const codeInput = el('input', {
+    placeholder: 'Aggiungi con codice IIM-XXXX-XXXX…',
+    onKeyDown: (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; addByCodeFlow(v); } },
   });
-  searchBox.appendChild(searchInput);
+  searchBox.appendChild(codeInput);
   side.appendChild(searchBox);
+
+  // Il MIO codice, da condividere per farsi trovare (nessuno può cercarti per nome).
+  const myCodeBar = el('div', { style: 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:11px;color:#54656F;' });
+  const myCodeVal = el('span', { style: 'font-weight:700;color:#00A884;letter-spacing:1px;' }, state.me.code || '…');
+  myCodeBar.appendChild(el('span', { style: 'opacity:.7;' }, 'Il mio codice:'));
+  myCodeBar.appendChild(myCodeVal);
+  myCodeBar.appendChild(el('button', {
+    class: 'ghost', style: 'padding:1px 8px;font-size:11px;',
+    onClick: () => { if (state.me.code) { navigator.clipboard.writeText(state.me.code); toast('Codice copiato', 'ok'); } },
+  }, 'copia'));
+  side.appendChild(myCodeBar);
+  if (!state.me.code) {
+    iimsg.api.myCode().then((c) => { state.me.code = c; myCodeVal.textContent = c; }).catch(() => {});
+  }
 
   const results = el('div', { class: 'chat-list', id: 'chat-list' });
   side.appendChild(results);
@@ -811,6 +848,26 @@ iimsg.socket.onMessage(async (ev) => {
       auth_failed: 'Autenticazione al relay fallita: esci e rientra.',
     };
     toast(map[ev.error] || ('Errore relay: ' + ev.error));
+    return;
+  }
+  // Richiesta di contatto "seamless": qualcuno ci ha trovati col codice e ci invita.
+  if (ev.type === 'contact_invite' && ev.token) {
+    const nm = ev.fromName || 'Qualcuno';
+    if (confirm(nm + ' vuole contattarti su II Private Messenger. Accettare?')) {
+      try {
+        const res = await iimsg.groups.join(ev.token);
+        if (res.status === 'joined' || res.status === 'already_member') {
+          if (!state.groups[res.gid]) state.groups[res.gid] = { id: res.gid, name: nm, epoch: 0, memberIds: [], messages: [] };
+          else state.groups[res.gid].name = nm;
+          state.distSent[res.gid] = -1;
+          state.activeGroup = res.gid; state.activeChat = null;
+          persistGroups(); render();
+          toast('Contatto aggiunto: ' + nm, 'ok');
+        } else {
+          toast('Richiesta inviata: in attesa di approvazione.');
+        }
+      } catch (e) { toast('Invito non valido o scaduto.'); }
+    }
     return;
   }
   if (ev.type === 'message' && ev.from && ev.ciphertext) {

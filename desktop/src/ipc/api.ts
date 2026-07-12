@@ -155,6 +155,18 @@ export function registerApiIpc(ipc: IpcMain): void {
     }));
   });
 
+  // Discovery solo-codice: il mio codice da condividere + risoluzione di un codice altrui.
+  ipc.handle('api.myCode', async () => {
+    const w = await envelope<any>(axios.get(`${BASE}/users/me/code`, { headers: await authed() }));
+    return w.user_code as string;
+  });
+  ipc.handle('api.byCode', async (_e, code: string) => {
+    try {
+      const w = await envelope<any>(axios.get(`${BASE}/users/by-code/${encodeURIComponent(String(code).trim())}`, { headers: await authed() }));
+      return { id: w.id, displayName: w.display_name, userCode: w.user_code };
+    } catch { return null; }
+  });
+
   ipc.handle('api.getUserKeys', async (_e, id: string) => {
     const w = await envelope<any>(axios.get(`${BASE}/users/${id}/keys`, { headers: await authed() }));
     const spk = typeof w.signed_prekey === 'string' ? JSON.parse(w.signed_prekey) : w.signed_prekey;
