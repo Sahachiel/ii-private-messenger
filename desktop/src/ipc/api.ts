@@ -196,4 +196,6 @@ export function registerApiIpc(ipc: IpcMain): void {
     envelope<Array<{ user_id: string; created_at: string }>>(axios.get(`${BASE}/groups/${gid}/join-requests`, { headers: await authed() })));
   ipc.handle('groups.decide', async (_e, gid: string, userId: string, approve: boolean) =>
     envelope<{ epoch: number | null }>(axios.post(`${BASE}/groups/${gid}/join-requests/${userId}`, { approve }, { headers: await authed() })));
+  ipc.handle('groups.leave', async (_e, gid: string) =>
+    envelope<{ left: boolean; epoch: number }>(axios.post(`${BASE}/groups/${gid}/leave`, {}, { headers: await authed() })));
 }

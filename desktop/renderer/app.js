@@ -195,6 +195,19 @@ async function joinGroupFlow() {
   } catch (e) { toast('Ingresso fallito: ' + (e.message || e)); }
 }
 
+async function leaveGroupFlow(gid) {
+  const g = state.groups[gid];
+  if (!g) return;
+  if (!confirm('Uscire ed eliminare "' + g.name + '" dalla lista?')) return;
+  try { await iimsg.groups.leave(gid); } catch (e) { /* rimuovi localmente anche se il backend fallisce */ }
+  delete state.groups[gid];
+  delete state.distSent[gid];
+  if (state.activeGroup === gid) state.activeGroup = null;
+  persistGroups();
+  render();
+  toast('Gruppo rimosso', 'ok');
+}
+
 async function inviteToGroup(gid) {
   try {
     const res = await iimsg.groups.invite(gid, { requires_approval: false, max_uses: 5, ttl_seconds: 86400 });
@@ -497,13 +510,16 @@ function renderSidebar() {
   for (const gid of gids) {
     const g = state.groups[gid];
     const last = (g.messages && g.messages.length) ? g.messages[g.messages.length - 1] : null;
-    grpList.appendChild(el('div', {
+    const grpRow = el('div', {
       class: 'chat-row' + (state.activeGroup === gid ? ' active' : ''),
+      title: 'Tasto destro per uscire/eliminare il gruppo',
       onClick: () => { state.activeGroup = gid; state.activeChat = null; state.replyTo = null; render(); },
     }, [
       el('div', { class: 'name-row' }, [el('div', { class: 'name' }, '# ' + g.name)]),
       el('div', { class: 'preview' }, last ? kindPreview(last.kind, last.body) : ((g.memberIds ? g.memberIds.length : 1) + ' membri')),
-    ]));
+    ]);
+    grpRow.oncontextmenu = (e) => { e.preventDefault(); leaveGroupFlow(gid); };
+    grpList.appendChild(grpRow);
   }
   side.appendChild(grpList);
   return side;

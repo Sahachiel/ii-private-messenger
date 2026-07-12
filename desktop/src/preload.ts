@@ -28,6 +28,7 @@ const api = {
     join: (token: string) => ipcRenderer.invoke('groups.join', token),
     joinRequests: (gid: string) => ipcRenderer.invoke('groups.joinRequests', gid),
     decide: (gid: string, userId: string, approve: boolean) => ipcRenderer.invoke('groups.decide', gid, userId, approve),
+    leave: (gid: string) => ipcRenderer.invoke('groups.leave', gid),
   },
   senderKeys: {
     myDistribution: (gid: string, epoch: number) => ipcRenderer.invoke('senderkeys.myDistribution', gid, epoch),
