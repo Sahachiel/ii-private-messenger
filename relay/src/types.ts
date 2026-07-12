@@ -73,6 +73,16 @@ export const PingSchema = z.object({
   type: z.literal('ping'),
   ts: z.number().optional(),
 });
+// Richiesta di contatto "seamless": chi aggiunge-per-codice crea un gruppo + invito bound e
+// recapita il token al destinatario via relay (instradato per `to`, senza gid, come le chiamate).
+// Il destinatario mostra "X vuole contattarti" → Accetta → groups.join(token).
+export const ContactInviteSchema = z.object({
+  type: z.literal('contact_invite'),
+  to: z.string(),
+  token: z.string(),
+  fromName: z.string().optional(),
+  fromCode: z.string().optional(),
+});
 
 export const RelayMessageSchema = z.discriminatedUnion('type', [
   SendMessageSchema,
@@ -83,6 +93,7 @@ export const RelayMessageSchema = z.discriminatedUnion('type', [
   TypingStartSchema,
   TypingStopSchema,
   ReadReceiptSchema,
+  ContactInviteSchema,
   PingSchema,
 ]);
 export type RelayMessage = z.infer<typeof RelayMessageSchema>;
@@ -97,6 +108,7 @@ export type RelayEventType =
   | 'call_end'
   | 'typing_start'
   | 'typing_stop'
+  | 'contact_invite'
   | 'presence'
   | 'pong'
   | 'error';
@@ -121,6 +133,9 @@ export interface RelayEventBase {
   userId?: string;
   ts?: number;
   error?: string;
+  token?: string;
+  fromName?: string;
+  fromCode?: string;
 }
 
 export type RelayEvent = RelayEventBase;

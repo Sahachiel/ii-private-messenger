@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
+import { Alert } from 'react-native';
 import { socket } from '@services/socket';
+import { groupsApi } from '@services/api';
 import { useAppDispatch, useAppSelector } from '@store/index';
 import { decryptIncoming, updateMessageStatus, setTyping, addMessage } from '@store/chatSlice';
 import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from '@store/callSlice';
@@ -70,6 +72,26 @@ export function useSocket(): void {
         case 'call_end':
           dispatch(endCall());
           break;
+        case 'contact_invite': {
+          // Richiesta di contatto seamless: qualcuno ci ha trovati col codice e ci invita.
+          if (!ev.token) break;
+          const nm = ev.fromName || 'Qualcuno';
+          Alert.alert(
+            'Richiesta di contatto',
+            `${nm} vuole contattarti su II Private Messenger.`,
+            [
+              { text: 'Ignora', style: 'cancel' },
+              { text: 'Accetta', onPress: async () => {
+                try {
+                  const res = await groupsApi.join(ev.token as string);
+                  const gid = (res as any)?.gid;
+                  if (gid) navigate('Chat', { conversationId: gid, peerId: gid, peerName: nm, isGroup: true });
+                } catch { /* invito scaduto/non valido */ }
+              } },
+            ],
+          );
+          break;
+        }
       }
     });
     return () => { off(); socket.disconnect(); };

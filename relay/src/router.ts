@@ -55,6 +55,8 @@ function eventTypeForIncoming(t: RelayMessage['type']): RelayEventType | null {
       return 'typing_stop';
     case 'read_receipt':
       return 'read_receipt';
+    case 'contact_invite':
+      return 'contact_invite';
     case 'ping':
       return null;
     default:
@@ -109,6 +111,12 @@ function buildEvent(from: string, msg: RelayMessage): RelayEvent | null {
       base.messageId = msg.messageId;
       base.conversationId = msg.conversationId;
       base.gid = msg.gid;
+      return base;
+    case 'contact_invite':
+      base.to = msg.to;
+      base.token = msg.token;
+      base.fromName = msg.fromName;
+      base.fromCode = msg.fromCode;
       return base;
     default:
       return null;

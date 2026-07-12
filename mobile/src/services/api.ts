@@ -182,6 +182,18 @@ export const usersApi = {
     };
   },
 
+  // Discovery solo-codice: il mio codice (da condividere) e la risoluzione di un codice altrui.
+  async myCode(): Promise<string> {
+    const w = await request<{ user_code: string }>('/users/me/code');
+    return w.user_code;
+  },
+  async byCode(code: string): Promise<{ id: string; displayName: string; userCode: string } | null> {
+    try {
+      const w = await request<any>(`/users/by-code/${encodeURIComponent(code.trim())}`);
+      return { id: w.id, displayName: w.display_name ?? String(w.id).slice(0, 8), userCode: w.user_code };
+    } catch { return null; }
+  },
+
   async updateMe(patch: Partial<{ displayName: string; avatarUrl: string }>): Promise<User> {
     await request<{ updated: boolean }>('/users/me', {
       method: 'PATCH',
