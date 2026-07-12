@@ -43,6 +43,66 @@ const el = (tag, attrs = {}, children = []) => {
   return n;
 };
 
+// ---------- Invio media (foto/video/vocali/file) — stesso envelope v2 del mobile ----------
+const MAX_B64 = 1_500_000; // ~1.1MB raw, come il cap del mobile (media inline base64)
+let mediaRecorder = null;
+let recChunks = [];
+
+function kindForMime(mime) {
+  if (/^image\//.test(mime)) return 'image';
+  if (/^video\//.test(mime)) return 'video';
+  if (/^audio\//.test(mime)) return 'voice';
+  return 'file';
+}
+function blobToMedia(blob, name) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const d = String(r.result);
+      const b64 = d.slice(d.indexOf(',') + 1);
+      if (b64.length > MAX_B64) { reject(new Error('File troppo grande (max ~1.1MB inline)')); return; }
+      resolve({ mime: blob.type || 'application/octet-stream', data: b64, size: blob.size, name: name });
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function sendMediaMessage(peerId, kind, body, media) {
+  const convo = state.chats[peerId];
+  if (!convo) return;
+  const clientMsgId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const envelope = { v: 2, kind, body: body || '', media, clientMsgId };
+  const payload = await iimsg.crypto.encrypt(peerId, encodeEnvelope(envelope));
+  await iimsg.socket.send({
+    type: 'send_message', messageId: clientMsgId, to: peerId,
+    conversationId: peerId, ciphertext: JSON.stringify({ payload }),
+    messageType: kind, timestamp: Date.now(),
+  });
+  convo.messages.push({ id: clientMsgId, mine: true, kind, body: body || '', media, ts: Date.now(), status: 'sent' });
+  render();
+}
+async function toggleRecord(peerId, btn) {
+  if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      btn.textContent = '🎤'; btn.classList.remove('recording');
+      try {
+        const blob = new Blob(recChunks, { type: 'audio/webm' });
+        const media = await blobToMedia(blob, 'voice.webm');
+        await sendMediaMessage(peerId, 'voice', '', media);
+      } catch (e) { alert(e.message || String(e)); }
+      mediaRecorder = null;
+    };
+    mediaRecorder.start();
+    btn.textContent = '⏹'; btn.classList.add('recording');
+  } catch (e) { alert('Microfono non disponibile'); }
+}
+
 function render() {
   const app = $('#app');
   app.innerHTML = '';
@@ -314,6 +374,22 @@ function renderChat() {
     composer.appendChild(strip);
   }
   const inputRow = el('div', { class: 'composer-row' });
+  // allega file/foto/video (input file nascosto)
+  const fileInput = el('input', { type: 'file', style: 'display:none' });
+  fileInput.onchange = async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (f) {
+      try {
+        const media = await blobToMedia(f, f.name);
+        const kind = kindForMime(media.mime);
+        await sendMediaMessage(peerId, kind, kind === 'file' ? f.name : '', media);
+      } catch (e) { alert(e.message || String(e)); }
+    }
+    fileInput.value = '';
+  };
+  const attachBtn = el('button', { class: 'composer-icon', title: 'Allega file / foto / video', onClick: () => fileInput.click() }, '📎');
+  const recBtn = el('button', { class: 'composer-icon', title: 'Registra vocale (clic per iniziare/fermare)' }, '🎤');
+  recBtn.onclick = () => toggleRecord(peerId, recBtn);
   const input = el('input', { placeholder: 'Encrypted message…' });
   const sendBtn = el('button', {
     onClick: async () => {
@@ -341,7 +417,11 @@ function renderChat() {
     },
   }, '➤');
   input.onkeydown = (e) => { if (e.key === 'Enter') sendBtn.click(); };
-  inputRow.appendChild(input); inputRow.appendChild(sendBtn);
+  inputRow.appendChild(fileInput);
+  inputRow.appendChild(attachBtn);
+  inputRow.appendChild(recBtn);
+  inputRow.appendChild(input);
+  inputRow.appendChild(sendBtn);
   composer.appendChild(inputRow);
   chat.appendChild(composer);
   setTimeout(() => { const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight; }, 10);

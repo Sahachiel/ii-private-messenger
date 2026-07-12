@@ -221,3 +221,11 @@ body {
 .call-btn.accept { background: #16a34a; }
 .call-btn.reject { background: #dc2626; }
 .call-btn.ctl { background: #334155; width: 56px; height: 56px; border-radius: 50%; padding: 0; font-size: 22px; }
+
+/* ---------- Composer media ---------- */
+.composer-icon { background: #14203a; border: 1px solid #24406a; color: #ffd45e; border-radius: 8px; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-right: 6px; flex: 0 0 auto; }
+.composer-icon:hover { background: #1c2c4e; }
+.composer-icon.recording { background: #dc2626; color: #fff; border-color: #dc2626; animation: recpulse 1s infinite; }
+@keyframes recpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+.bubble-video { display: block; margin-top: 4px; max-width: 280px; border-radius: 10px; }
+.bubble-file { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: #ffd45e; text-decoration: none; }
