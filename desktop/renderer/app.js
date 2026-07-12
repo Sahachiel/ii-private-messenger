@@ -134,6 +134,10 @@ function renderAuth() {
   const btn = el('button', {
     onClick: async () => {
       errBox.textContent = '';
+      if (mode === 'register') {
+        if (username.value.trim().length < 3) { errBox.textContent = 'Username: minimo 3 caratteri'; return; }
+        if (password.value.length < 8) { errBox.textContent = 'Password: minimo 8 caratteri'; return; }
+      }
       try {
         if (mode === 'login') {
           await iimsg.api.login(username.value.trim(), password.value);

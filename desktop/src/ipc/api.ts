@@ -18,9 +18,23 @@ async function authed(): Promise<Record<string, string>> {
 }
 
 async function envelope<T>(p: Promise<{ data: any }>): Promise<T> {
-  const r = await p;
-  if (!r.data?.success) throw new Error(r.data?.error ?? 'request failed');
-  return r.data.data as T;
+  try {
+    const r = await p;
+    if (!r.data?.success) throw new Error(r.data?.error ?? 'request failed');
+    return r.data.data as T;
+  } catch (e: any) {
+    // Espone il vero errore del backend (es. validazione) invece del generico "status code 400".
+    const resp = e?.response?.data;
+    if (resp) {
+      let msg = resp.error || 'request failed';
+      const issues = resp.data?.issues;
+      if (Array.isArray(issues) && issues.length) {
+        msg += ': ' + issues.map((i: any) => `${(i.path || []).join('.')} ${i.message}`).join('; ');
+      }
+      throw new Error(msg);
+    }
+    throw e;
+  }
 }
 
 export function registerApiIpc(ipc: IpcMain): void {
