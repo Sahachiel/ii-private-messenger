@@ -157,6 +157,10 @@ export const InternalForwardSchema = z.object({
   sdp: z.string().optional(),
   candidate: z.unknown().optional(),
   reason: z.string().optional(),
+  // contact_invite instradato cross-region: porta il token dell'invito e i metadati del mittente.
+  token: z.string().optional(),
+  fromName: z.string().optional(),
+  fromCode: z.string().optional(),
 });
 export type InternalForward = z.infer<typeof InternalForwardSchema>;
 

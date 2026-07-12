@@ -211,7 +211,10 @@ async function addByCodeFlow(rawCode) {
       bound_user_id: found.id, requires_approval: false, max_uses: 1, ttl_seconds: 7 * 24 * 3600,
     });
     const myName = state.me.displayName || state.me.username || 'Qualcuno';
-    await iimsg.socket.send({ type: 'contact_invite', to: found.id, token: inv.token, fromName: myName, fromCode: state.me.code || '' });
+    // Il socket desktop NON accoda: se non è OPEN, send ritorna false e l'invito andrebbe perso.
+    // Verifichiamo la consegna prima di creare lo stato locale, così non diamo un falso successo.
+    const sent = await iimsg.socket.send({ type: 'contact_invite', to: found.id, token: inv.token, fromName: myName, fromCode: state.me.code || '' });
+    if (!sent) { toast('Connessione al relay non pronta: riprova tra un istante.'); return; }
     const nm = found.displayName || 'Contatto';
     state.groups[g.id] = { id: g.id, name: nm, epoch: g.epoch, memberIds: [state.me.userId], messages: [] };
     state.distSent[g.id] = -1; // forza distribuzione sender key al primo invio

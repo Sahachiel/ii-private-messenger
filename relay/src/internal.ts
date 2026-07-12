@@ -30,6 +30,7 @@ const KNOWN_EVENT_TYPES: ReadonlySet<RelayEventType> = new Set<RelayEventType>([
   'call_end',
   'typing_start',
   'typing_stop',
+  'contact_invite',
   'presence',
   'pong',
   'error',
@@ -79,6 +80,9 @@ export async function handleInternalRelay(
       sdp: payload.sdp,
       candidate: payload.candidate,
       reason: payload.reason,
+      token: payload.token,
+      fromName: payload.fromName,
+      fromCode: payload.fromCode,
     };
     await deliverOrQueueLocal(event);
     jsonRespond(res, 200, { success: true });

@@ -239,8 +239,10 @@ async function deliverEvent(
 }
 
 function shouldQueue(t: RelayMessage['type']): boolean {
-  // Only queue persistent events; skip transient signaling/typing
-  return t === 'send_message' || t === 'read_receipt';
+  // Only queue persistent events; skip transient signaling/typing.
+  // contact_invite è persistente: se il destinatario è offline va accodato e consegnato al
+  // prossimo login, altrimenti la richiesta di contatto seamless andrebbe persa.
+  return t === 'send_message' || t === 'read_receipt' || t === 'contact_invite';
 }
 
 export async function deliverOrQueueLocal(event: RelayEvent): Promise<void> {
@@ -250,7 +252,8 @@ export async function deliverOrQueueLocal(event: RelayEvent): Promise<void> {
     sendToSocket(socket, event);
     return;
   }
-  if (event.type === 'message' || event.type === 'read_receipt') {
+  // Persistenti (offline): messaggi, ricevute e richieste di contatto seamless.
+  if (event.type === 'message' || event.type === 'read_receipt' || event.type === 'contact_invite') {
     await enqueue(event.to, event);
   }
 }
