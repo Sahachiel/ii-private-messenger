@@ -8,8 +8,6 @@ import type { Region } from '../types';
 
 const router = Router();
 
-const searchSchema = z.object({ q: z.string().min(1).max(64) });
-
 /** True se `me` e `target` condividono almeno un gruppo attivo (co-membership). */
 async function shareActiveGroup(me: string, target: string): Promise<boolean> {
   const r = await pool.query(
@@ -26,34 +24,34 @@ async function shareActiveGroup(me: string, target: string): Promise<boolean> {
   return (r.rowCount ?? 0) > 0;
 }
 
-// ISOLAMENTO: l'app e' group-centric. La ricerca NON e' globale — restituisce solo utenti
-// che condividono gia' un gruppo attivo col chiamante. Nuovi membri entrano SOLO via invito.
-router.get('/search', requireAuth, generalLimiter, async (req: Request, res: Response, next: NextFunction) => {
+// DISCOVERY SOLO-CODICE: la ricerca per username è DISATTIVATA (privacy: nessuno può
+// enumerarti/scovarti per nome). Ci si trova SOLO col codice utente opaco, condiviso a mano.
+router.get('/search', requireAuth, generalLimiter, async (_req: Request, res: Response) => {
+  res.status(403).json({ success: false, error: 'search_disabled', data: { message: 'La ricerca per username è disattivata. Usa il codice utente.' } });
+});
+
+// Il MIO codice utente (da condividere per farsi aggiungere).
+router.get('/me/code', requireAuth, generalLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { q } = searchSchema.parse(req.query);
-    const like = `%${q.toLowerCase()}%`;
-    const result = await pool.query(
-      `SELECT u.id, u.username, u.display_name, u.avatar_url
-         FROM users u
-        WHERE u.is_active = TRUE
-          AND (LOWER(u.username) LIKE $1 OR LOWER(u.display_name) LIKE $1)
-          AND u.id <> $2
-          AND u.id IN (
-            SELECT DISTINCT cm2.user_id
-              FROM conversation_members cm1
-              JOIN conversation_members cm2 ON cm1.conversation_id = cm2.conversation_id
-              JOIN conversations c ON c.id = cm1.conversation_id
-             WHERE cm1.user_id = $2 AND cm1.status = 'active' AND cm2.status = 'active'
-               AND c.is_group = TRUE AND c.deleted_at IS NULL
-          )
-        ORDER BY u.username ASC
-        LIMIT 20`,
-      [like, req.user!.id],
+    const r = await pool.query(`SELECT user_code, username, display_name FROM users WHERE id = $1`, [req.user!.id]);
+    if (!r.rowCount) { res.status(404).json({ success: false, error: 'not_found' }); return; }
+    res.json({ success: true, data: r.rows[0] });
+  } catch (e) { next(e); }
+});
+
+// Risolve un codice utente → identità (id, display_name). È l'UNICO modo per trovare qualcuno.
+// Match esatto case-insensitive; 404 uniforme se il codice non esiste. Rate-limited contro brute force.
+const codeParam = z.object({ code: z.string().min(6).max(24) });
+router.get('/by-code/:code', requireAuth, generalLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code } = codeParam.parse(req.params);
+    const r = await pool.query(
+      `SELECT id, display_name, user_code FROM users WHERE upper(user_code) = upper($1) AND is_active = TRUE LIMIT 1`,
+      [code.trim()],
     );
-    res.json({ success: true, data: result.rows });
-  } catch (e) {
-    next(e);
-  }
+    if (!r.rowCount) { res.status(404).json({ success: false, error: 'not_found' }); return; }
+    res.json({ success: true, data: r.rows[0] });
+  } catch (e) { next(e); }
 });
 
 const idParam = z.object({ id: z.string().uuid() });
