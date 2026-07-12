@@ -12,8 +12,36 @@ async function getToken(): Promise<string | null> {
   return store.get('accessToken') ?? null;
 }
 
+function jwtExpired(jwt: string): boolean {
+  try {
+    const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString('utf8'));
+    return !payload.exp || payload.exp * 1000 < Date.now() + 5000; // 5s di margine
+  } catch {
+    return false;
+  }
+}
+
+// Rinnova l'access token usando il refresh token in keytar. Ritorna il nuovo token o null.
+async function refreshAccessToken(): Promise<string | null> {
+  const refresh = await keytar.getPassword(SERVICE, 'refresh');
+  if (!refresh) return null;
+  try {
+    const r = await axios.post(`${BASE}/auth/refresh`, { refresh_token: refresh });
+    const d = r.data?.data;
+    if (r.data?.success && d) {
+      store.set('accessToken', d.access_token);
+      await keytar.setPassword(SERVICE, 'refresh', d.refresh_token);
+      return d.access_token as string;
+    }
+  } catch { /* refresh fallito → sessione da rifare */ }
+  return null;
+}
+
 async function authed(): Promise<Record<string, string>> {
-  const t = await getToken();
+  // Rinnovo PROATTIVO: l'access token scade in 15min; senza refresh, gruppi/chiamate davano
+  // "jwt expired". Se è scaduto (o sta per), lo rinnoviamo col refresh token prima della chiamata.
+  let t = await getToken();
+  if (t && jwtExpired(t)) t = (await refreshAccessToken()) ?? t;
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
