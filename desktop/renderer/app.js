@@ -200,7 +200,7 @@ async function joinGroupFlow() {
 // relay (contact_invite). Appena l'altro accetta, entra nel gruppo e la chat è attiva ed E2EE.
 async function addByCodeFlow(rawCode) {
   const q = (rawCode || '').trim().toUpperCase();
-  if (q.length < 6) { toast('Codice non valido (es. IIM-XXXX-XXXX)'); return; }
+  if (q.length < 6) { toast('Codice non valido (es. IIM-XXXX-XXXX-XXXX)'); return; }
   if (state.me.code && q === state.me.code.toUpperCase()) { toast('Questo è il tuo codice'); return; }
   try {
     const found = await iimsg.api.byCode(q);
@@ -508,7 +508,7 @@ function renderSidebar() {
   // Discovery SOLO-CODICE: niente ricerca per username. Si aggiunge un contatto col suo codice.
   const searchBox = el('div', { class: 'search-box' });
   const codeInput = el('input', {
-    placeholder: 'Aggiungi con codice IIM-XXXX-XXXX…',
+    placeholder: 'Aggiungi con codice IIM-XXXX-XXXX-XXXX…',
     onKeyDown: (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; addByCodeFlow(v); } },
   });
   searchBox.appendChild(codeInput);

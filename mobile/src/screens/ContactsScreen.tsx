@@ -43,7 +43,7 @@ export const ContactsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   const addByCode = async (): Promise<void> => {
     const q = code.trim().toUpperCase();
-    if (q.length < 6) { Alert.alert('Codice non valido', 'Inserisci il codice completo (es. IIM-XXXX-XXXX).'); return; }
+    if (q.length < 6) { Alert.alert('Codice non valido', 'Inserisci il codice completo (es. IIM-XXXX-XXXX-XXXX).'); return; }
     if (myCode && q === myCode.toUpperCase()) { Alert.alert('Sei tu', 'Questo è il tuo codice.'); return; }
     setBusy(true);
     try {
@@ -98,7 +98,7 @@ export const ContactsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         <View style={[styles.card, { marginTop: 16 }]}>
           <Text style={styles.cardLabel}>AGGIUNGI CON CODICE</Text>
           <Input
-            placeholder="IIM-XXXX-XXXX"
+            placeholder="IIM-XXXX-XXXX-XXXX"
             autoCapitalize="characters"
             autoCorrect={false}
             value={code}
