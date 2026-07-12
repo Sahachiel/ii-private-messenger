@@ -244,11 +244,17 @@ function renderChat() {
   const convo = state.chats[peerId];
   const trust = state.peerTrust[peerId];
   chat.appendChild(el('div', { class: 'chat-header' }, [
-    el('div', { class: 'name-row' }, [
-      el('div', { class: 'name' }, convo.peerName),
-      trust ? el('span', { class: 'trust-pill ' + trust.level }, trust.level.toUpperCase() + (typeof trust.score === 'number' ? ' · ' + trust.score : '')) : null,
+    el('div', { class: 'name-col' }, [
+      el('div', { class: 'name-row' }, [
+        el('div', { class: 'name' }, convo.peerName),
+        trust ? el('span', { class: 'trust-pill ' + trust.level }, trust.level.toUpperCase() + (typeof trust.score === 'number' ? ' · ' + trust.score : '')) : null,
+      ]),
+      el('div', { class: 'sub' }, '🔒 E2E ENCRYPTED · ENVELOPE V2'),
     ]),
-    el('div', { class: 'sub' }, '🔒 E2E ENCRYPTED · ENVELOPE V2'),
+    el('div', { class: 'call-buttons' }, [
+      el('button', { class: 'call-hdr-btn', title: 'Chiamata audio', onClick: () => window.iimsgCall && window.iimsgCall.start(peerId, convo.peerName, false) }, '📞'),
+      el('button', { class: 'call-hdr-btn', title: 'Videochiamata', onClick: () => window.iimsgCall && window.iimsgCall.start(peerId, convo.peerName, true) }, '📹'),
+    ]),
   ]));
 
   // Client-side disappearing messages — filter out expired entries at render time.

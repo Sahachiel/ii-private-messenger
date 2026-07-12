@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, session } from 'electron';
 import path from 'path';
 import { registerCryptoIpc } from './ipc/crypto';
 import { registerApiIpc } from './ipc/api';
@@ -28,6 +28,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Consenti microfono/webcam alla renderer (necessario per le chiamate WebRTC).
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
+    cb(permission === 'media' || permission === 'mediaKeySystem');
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
   registerCryptoIpc(ipcMain);
   registerApiIpc(ipcMain);
   registerSocketIpc(ipcMain, () => mainWindow);
