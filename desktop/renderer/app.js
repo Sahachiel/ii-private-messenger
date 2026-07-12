@@ -20,6 +20,9 @@ const state = {
   me: { userId: null, username: null, fingerprint: null },
   chats: {},        // peerId -> { peerName, messages: [...] }
   activeChat: null,
+  groups: {},       // gid -> { id, name, epoch, memberIds:[], messages:[] }
+  activeGroup: null,
+  distSent: {},     // gid -> epoch (sender-key distribution già inviata per quell'epoch)
   users: [],        // search results
   peerTrust: {},    // peerId -> { level, score, ts }
   replyTo: null,    // { id, senderId, preview, kind } — set by tapping Reply on a bubble
@@ -103,6 +106,181 @@ async function toggleRecord(peerId, btn) {
   } catch (e) { alert('Microfono non disponibile'); }
 }
 
+// ============================ GRUPPI (interop col mobile group-centric) ============================
+// Il backend richiede che ogni messaggio di chat sia di gruppo (gid + capability firmata + Sender
+// Keys). Qui il desktop parla lo STESSO protocollo del mobile: capability dal backend, distribuzione
+// della sender key via canale pairwise Double Ratchet, poi fan-out del ciphertext sender-key ai membri.
+
+function persistGroups() {
+  try { localStorage.setItem('iimsg.groups', JSON.stringify(state.groups)); } catch {}
+}
+async function loadGroups() {
+  try { Object.assign(state.groups, JSON.parse(localStorage.getItem('iimsg.groups') || '{}')); } catch {}
+  try {
+    const gl = await iimsg.groups.list();
+    for (const gs of (gl || [])) {
+      if (!state.groups[gs.id]) state.groups[gs.id] = { id: gs.id, name: 'Gruppo ' + gs.id.slice(0, 6), epoch: gs.epoch, memberIds: [], messages: [] };
+      else state.groups[gs.id].epoch = gs.epoch;
+    }
+  } catch {}
+  persistGroups();
+}
+
+async function createGroupFlow() {
+  const name = prompt('Nome del gruppo (solo lato client — il server non lo vede):');
+  if (!name) return;
+  try {
+    const res = await iimsg.groups.create(50);
+    state.groups[res.id] = { id: res.id, name: name.trim(), epoch: res.epoch, memberIds: [state.me.userId], messages: [] };
+    state.activeGroup = res.id; state.activeChat = null;
+    persistGroups(); render();
+    inviteToGroup(res.id); // apri subito l'invito così puoi aggiungere qualcuno
+  } catch (e) { toast('Creazione gruppo fallita: ' + (e.message || e)); }
+}
+
+async function joinGroupFlow() {
+  const token = prompt('Incolla il token di invito al gruppo:');
+  if (!token) return;
+  try {
+    const res = await iimsg.groups.join(token.trim());
+    if (res.status === 'joined' || res.status === 'already_member') {
+      if (!state.groups[res.gid]) state.groups[res.gid] = { id: res.gid, name: 'Gruppo ' + res.gid.slice(0, 6), epoch: 0, memberIds: [], messages: [] };
+      state.activeGroup = res.gid; state.activeChat = null;
+      state.distSent[res.gid] = -1; // forza (ri)distribuzione della mia sender key al primo invio
+      persistGroups(); render();
+      toast('Entrato nel gruppo.', 'ok');
+    } else {
+      toast('Richiesta di ingresso inviata: in attesa di approvazione.');
+    }
+  } catch (e) { toast('Ingresso fallito: ' + (e.message || e)); }
+}
+
+async function inviteToGroup(gid) {
+  try {
+    const res = await iimsg.groups.invite(gid, { requires_approval: false, max_uses: 5, ttl_seconds: 86400 });
+    showInviteDialog(res.token);
+  } catch (e) { toast('Generazione invito fallita: ' + (e.message || e)); }
+}
+
+function showInviteDialog(token) {
+  const overlay = el('div', { class: 'lightbox', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
+  const card = el('div', { style: 'background:#141a2e;padding:22px;border-radius:14px;max-width:440px;color:#fff;font:13px system-ui;text-align:center;' });
+  card.appendChild(el('div', { style: 'font-weight:700;margin-bottom:8px;font-size:15px;' }, 'Invito al gruppo'));
+  card.appendChild(el('div', { style: 'opacity:.8;margin-bottom:12px;line-height:1.4;' }, 'Condividi questo token: l’altra persona lo incolla su "Unisciti" (desktop) o scansiona il QR dal telefono.'));
+  const ta = el('textarea', { readonly: '', style: 'width:100%;height:64px;background:#0b0f1e;color:#8ecbff;border:1px solid #2a3350;border-radius:8px;padding:8px;font:11px monospace;box-sizing:border-box;' });
+  ta.value = token;
+  card.appendChild(ta);
+  const qr = el('div', { style: 'margin:12px auto;' });
+  if (typeof window.qrcode === 'function') {
+    try { const q = window.qrcode(0, 'M'); q.addData(token); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); const svg = qr.querySelector('svg'); if (svg) { svg.setAttribute('width', '200'); svg.setAttribute('height', '200'); } } catch {}
+  }
+  card.appendChild(qr);
+  card.appendChild(el('button', { onClick: () => { navigator.clipboard.writeText(token); toast('Token copiato', 'ok'); } }, 'Copia token'));
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
+async function sendToGroup(gid, kind, body, media, replyTo) {
+  const g = state.groups[gid];
+  if (!g) return;
+  const myId = state.me.userId;
+  const msgId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let cap, epoch, others;
+  try {
+    const c = await iimsg.groups.capability(gid);
+    cap = c.cap; epoch = c.epoch;
+    const members = await iimsg.groups.members(gid);
+    g.memberIds = members.map((m) => m.user_id);
+    g.epoch = epoch;
+    others = g.memberIds.filter((u) => u !== myId);
+  } catch (e) { toast('Gruppo non disponibile: ' + (e.message || e)); return; }
+
+  await iimsg.senderKeys.rotateEpoch(gid, epoch);
+
+  // Distribuzione della MIA sender key ai membri (una volta per epoch), via canale pairwise.
+  if ((state.distSent[gid] ?? -1) < epoch) {
+    const distPlain = JSON.stringify(await iimsg.senderKeys.myDistribution(gid, epoch));
+    for (const peer of others) {
+      try {
+        try { const bundle = await iimsg.api.getUserKeys(peer); await iimsg.crypto.buildSession(peer, bundle); } catch {}
+        const payload = await iimsg.crypto.encrypt(peer, distPlain);
+        await iimsg.socket.send({
+          type: 'send_message', messageId: `${msgId}-d-${peer}`, to: peer,
+          conversationId: gid, gid, epoch, cap,
+          ciphertext: JSON.stringify({ gskd: payload, from: myId }),
+          messageType: 'system', timestamp: Date.now(),
+        });
+      } catch {}
+    }
+    state.distSent[gid] = epoch;
+  }
+
+  // UNA cifratura sender-key; lo stesso ciphertext va a ciascun membro.
+  const env = { v: 2, kind, body: body || '', media, replyTo: replyTo || undefined, groupId: gid, epoch, gname: g.name, clientMsgId: msgId };
+  const skm = await iimsg.senderKeys.encryptGroup(gid, epoch, encodeEnvelope(env));
+  const ciphertext = JSON.stringify({ gsk: skm });
+  let anyPeer = false;
+  for (const peer of others) {
+    const ok = await iimsg.socket.send({
+      type: 'send_message', messageId: `${msgId}-${peer}`, to: peer,
+      conversationId: gid, gid, epoch, cap,
+      ciphertext, messageType: kind, timestamp: Date.now(),
+    });
+    anyPeer = anyPeer || ok;
+  }
+  g.messages.push({ id: msgId, mine: true, kind, body: body || '', media, replyTo, ts: Date.now(), status: 'sent' });
+  if (others.length === 0) toast('Sei solo nel gruppo: invita qualcuno con ➕ per far arrivare i messaggi.');
+  persistGroups(); render();
+}
+
+function renderGroupChat(gid) {
+  const g = state.groups[gid];
+  const chat = el('div', { class: 'chat' });
+  if (!g) { chat.appendChild(el('div', { class: 'empty' }, 'Gruppo non trovato')); return chat; }
+  chat.appendChild(el('div', { class: 'chat-header' }, [
+    el('div', { class: 'name-col' }, [
+      el('div', { class: 'name-row' }, [el('div', { class: 'name' }, '# ' + g.name)]),
+      el('div', { class: 'sub' }, '🔒 GRUPPO E2E · SENDER KEYS · ' + (g.memberIds ? g.memberIds.length : 0) + ' membri'),
+    ]),
+    el('div', { class: 'call-buttons' }, [
+      el('button', { class: 'call-hdr-btn', title: 'Invita nel gruppo', onClick: () => inviteToGroup(gid) }, '➕'),
+    ]),
+  ]));
+  const now = Date.now();
+  const visible = (g.messages || []).filter((m) => !m.expiresAt || m.expiresAt > now);
+  const msgs = el('div', { class: 'messages', id: 'msgs' });
+  for (const m of visible) {
+    const b = el('div', { class: 'bubble ' + (m.mine ? 'mine' : 'theirs') });
+    const media = renderMediaBlock(m); if (media) b.appendChild(media);
+    if (m.body && m.kind !== 'voice' && m.kind !== 'file') b.appendChild(el('div', { class: 'bubble-text' }, m.body));
+    b.appendChild(el('div', { class: 'bubble-meta' }, [
+      el('span', { class: 'ts' }, new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+      m.mine ? el('span', { class: 'tick ' + (m.status || 'sent') }, m.status === 'delivered' ? '✓✓' : '✓') : null,
+    ]));
+    msgs.appendChild(b);
+  }
+  chat.appendChild(msgs);
+  const composer = el('div', { class: 'composer' });
+  const inputRow = el('div', { class: 'composer-row' });
+  const fileInput = el('input', { type: 'file', style: 'display:none' });
+  fileInput.onchange = async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (f) { try { const media = await blobToMedia(f, f.name); const kind = kindForMime(media.mime); await sendToGroup(gid, kind, kind === 'file' ? f.name : '', media); } catch (e) { alert(e.message || String(e)); } }
+    fileInput.value = '';
+  };
+  const attachBtn = el('button', { class: 'composer-icon', title: 'Allega file / foto / video', onClick: () => fileInput.click() }, '📎');
+  const input = el('input', { placeholder: 'Messaggio di gruppo cifrato…' });
+  const sendBtn = el('button', {
+    onClick: async () => { const body = input.value.trim(); if (!body) return; input.value = ''; await sendToGroup(gid, 'text', body, undefined); },
+  }, '➤');
+  input.onkeydown = (e) => { if (e.key === 'Enter') sendBtn.click(); };
+  inputRow.appendChild(fileInput); inputRow.appendChild(attachBtn); inputRow.appendChild(input); inputRow.appendChild(sendBtn);
+  composer.appendChild(inputRow);
+  chat.appendChild(composer);
+  setTimeout(() => { const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight; }, 10);
+  return chat;
+}
+
 function render() {
   const app = $('#app');
   app.innerHTML = '';
@@ -182,6 +360,7 @@ function renderAuth() {
         const sess = await iimsg.api.session().catch(() => ({}));
         state.me.userId = sess?.userId ?? null;
         state.me.fingerprint = sess?.fingerprint ?? null;
+        await loadGroups();
         render();
       } catch (e) { errBox.textContent = e.message ?? String(e); }
     },
@@ -237,6 +416,7 @@ function renderSidebar() {
         class: 'chat-row' + (state.activeChat === u.id ? ' active' : ''),
         onClick: async () => {
           state.activeChat = u.id;
+          state.activeGroup = null;
           state.replyTo = null;
           if (!state.chats[u.id]) {
             state.chats[u.id] = { peerId: u.id, peerName: u.display_name ?? u.username, messages: [] };
@@ -258,6 +438,31 @@ function renderSidebar() {
     }
   }
   renderResults();
+
+  // ---- Sezione GRUPPI (canale che funziona davvero col backend group-centric) ----
+  const grpHead = el('div', { class: 'grp-head', style: 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px 4px;font-size:11px;letter-spacing:.08em;opacity:.7;' }, [
+    el('span', {}, 'GRUPPI'),
+    el('div', { style: 'display:flex;gap:6px;' }, [
+      el('button', { class: 'ghost', style: 'padding:2px 8px;font-size:11px;', onClick: createGroupFlow }, '+ Nuovo'),
+      el('button', { class: 'ghost', style: 'padding:2px 8px;font-size:11px;', onClick: joinGroupFlow }, 'Unisciti'),
+    ]),
+  ]);
+  side.appendChild(grpHead);
+  const grpList = el('div', { class: 'chat-list' });
+  const gids = Object.keys(state.groups);
+  if (gids.length === 0) grpList.appendChild(el('div', { class: 'preview', style: 'padding:6px 12px;opacity:.5;' }, 'Nessun gruppo. "+ Nuovo" per iniziare.'));
+  for (const gid of gids) {
+    const g = state.groups[gid];
+    const last = (g.messages && g.messages.length) ? g.messages[g.messages.length - 1] : null;
+    grpList.appendChild(el('div', {
+      class: 'chat-row' + (state.activeGroup === gid ? ' active' : ''),
+      onClick: () => { state.activeGroup = gid; state.activeChat = null; state.replyTo = null; render(); },
+    }, [
+      el('div', { class: 'name-row' }, [el('div', { class: 'name' }, '# ' + g.name)]),
+      el('div', { class: 'preview' }, last ? kindPreview(last.kind, last.body) : ((g.memberIds ? g.memberIds.length : 1) + ' membri')),
+    ]));
+  }
+  side.appendChild(grpList);
   return side;
 }
 
@@ -325,9 +530,10 @@ function renderReplyPreview(convo, replyTo) {
 }
 
 function renderChat() {
+  if (state.activeGroup) return renderGroupChat(state.activeGroup);
   const chat = el('div', { class: 'chat' });
   const peerId = state.activeChat;
-  if (!peerId) { chat.appendChild(el('div', { class: 'empty' }, 'Select a contact to chat')); return chat; }
+  if (!peerId) { chat.appendChild(el('div', { class: 'empty' }, 'Seleziona un contatto o un gruppo')); return chat; }
   const convo = state.chats[peerId];
   const trust = state.peerTrust[peerId];
   chat.appendChild(el('div', { class: 'chat-header' }, [
@@ -507,12 +713,85 @@ function cryptoRandomNonce() {
   return btoa(String.fromCharCode(...b));
 }
 
+// Toast/notice minimale (non c'era): mostra errori relay e stato connessione invece di fallire in silenzio.
+function toast(text, kind) {
+  let el = document.getElementById('iimsg-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'iimsg-toast';
+    el.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;'
+      + 'padding:10px 16px;border-radius:10px;font:13px system-ui;color:#fff;max-width:80%;'
+      + 'box-shadow:0 6px 24px rgba(0,0,0,.35);transition:opacity .3s;';
+    document.body.appendChild(el);
+  }
+  el.style.background = kind === 'ok' ? '#1f8a4c' : '#b3261e';
+  el.textContent = text;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 4200);
+}
+
+function setConnState(s) {
+  const el = document.getElementById('conn-state');
+  if (el) {
+    el.textContent = s === 'connected' ? '● online' : s === 'reconnecting' ? '● riconnessione…' : '● offline';
+    el.style.color = s === 'connected' ? '#1f8a4c' : '#c98a00';
+  }
+}
+
 // Socket incoming message handler — decodes v2 envelope
 iimsg.socket.onMessage(async (ev) => {
   if (!ev || typeof ev !== 'object') return;
+  if (ev.type === 'socket_state') { setConnState(ev.state); return; }
+  if (ev.type === 'error') {
+    const map = {
+      gid_required: 'Le chat di gruppo non sono ancora attive sul desktop: messaggio non inviato.',
+      group_forbidden: 'Non sei membro di questo gruppo.',
+      epoch_stale: 'Chiave del gruppo aggiornata: riprova a inviare.',
+      no_access_token: 'Sessione non valida: esci e rientra.',
+      auth_failed: 'Autenticazione al relay fallita: esci e rientra.',
+    };
+    toast(map[ev.error] || ('Errore relay: ' + ev.error));
+    return;
+  }
   if (ev.type === 'message' && ev.from && ev.ciphertext) {
     try {
       const outer = JSON.parse(ev.ciphertext);
+      const gid = ev.gid;
+
+      // (1) Distribuzione Sender Key di gruppo (canale pairwise) — registra la chain del mittente.
+      if (gid && outer.gskd) {
+        try {
+          const distPlain = await iimsg.crypto.decrypt(ev.from, outer.gskd.ciphertext);
+          const dist = JSON.parse(distPlain);
+          // ANTI-POISONING: accetta solo se il mittente dichiarato (sid) coincide con args.from.
+          if (dist && dist.sid === ev.from && typeof dist.e === 'number' && typeof dist.ck === 'string' && typeof dist.spk === 'string') {
+            await iimsg.senderKeys.processDistribution(gid, dist);
+          }
+        } catch {}
+        return;
+      }
+
+      // (2) Messaggio di gruppo cifrato con Sender Key.
+      if (gid && outer.gsk) {
+        const gk = outer.gsk;
+        const validGsk = gk && typeof gk.sid === 'string' && typeof gk.e === 'number' && typeof gk.i === 'number'
+          && typeof gk.n === 'string' && typeof gk.c === 'string' && typeof gk.s === 'string';
+        if (!validGsk) return;
+        let plain;
+        try { plain = await iimsg.senderKeys.decryptGroup(gid, gk); } catch (e) { console.error('group decrypt', e); return; }
+        const envelope = decodeEnvelope(plain);
+        if (!state.groups[gid]) state.groups[gid] = { id: gid, name: envelope.gname || ('Gruppo ' + gid.slice(0, 6)), epoch: ev.epoch || 0, memberIds: [], messages: [] };
+        else if (envelope.gname && (!state.groups[gid].name || state.groups[gid].name.startsWith('Gruppo '))) state.groups[gid].name = envelope.gname;
+        state.groups[gid].messages.push({
+          id: envelope.clientMsgId ?? ev.messageId ?? (Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
+          mine: false, kind: envelope.kind, body: envelope.body ?? '', replyTo: envelope.replyTo, media: envelope.media,
+          ts: Date.now(), status: 'delivered', expiresAt: envelope.ttlMs ? Date.now() + envelope.ttlMs : undefined,
+        });
+        persistGroups(); render();
+        return;
+      }
+
       const payload = outer.payload ?? outer;
       // Record peer trust (unverified here — mobile did attestation signature check).
       if (outer.attestation) {
@@ -602,6 +881,7 @@ setInterval(() => {
         const node = await iimsg.api.myNode();
         await iimsg.socket.connect(node.relayUrl, 'in-main-process');
       } catch {}
+      await loadGroups();
     }
   } catch {}
   render();

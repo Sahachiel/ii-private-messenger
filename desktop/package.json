@@ -1,6 +1,6 @@
 {
   "name": "ii-private-messenger-desktop",
-  "version": "0.2.1",
+  "version": "0.2.4",
   "description": "II Private Messenger — desktop client (Windows/macOS/Linux)",
   "main": "dist/main.js",
   "private": true,
@@ -43,6 +43,20 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "menuCategory": false,
+      "shortcutName": "II Private Messenger",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "mac": {
       "target": "dmg",

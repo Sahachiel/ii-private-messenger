@@ -3,6 +3,7 @@ import path from 'path';
 import { registerCryptoIpc } from './ipc/crypto';
 import { registerApiIpc } from './ipc/api';
 import { registerSocketIpc } from './ipc/socket';
+import { registerSenderKeysIpc } from './ipc/senderKeys';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -36,6 +37,7 @@ app.whenReady().then(() => {
   registerCryptoIpc(ipcMain);
   registerApiIpc(ipcMain);
   registerSocketIpc(ipcMain, () => mainWindow);
+  registerSenderKeysIpc(ipcMain);
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

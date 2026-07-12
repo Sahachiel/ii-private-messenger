@@ -144,4 +144,23 @@ export function registerApiIpc(ipc: IpcMain): void {
       },
     };
   });
+
+  // ---- Gruppi (app group-centric): il backend è zero-knowledge sui contenuti; qui passano
+  // solo UUID opachi, ruoli, epoch e token/capability firmati. Stesse rotte del mobile groupsApi.
+  ipc.handle('groups.create', async (_e, maxMembers?: number) =>
+    envelope<{ id: string; epoch: number }>(axios.post(`${BASE}/groups`, { max_members: maxMembers }, { headers: await authed() })));
+  ipc.handle('groups.list', async () =>
+    envelope<Array<{ id: string; role: string; epoch: number; member_count: number }>>(axios.get(`${BASE}/groups`, { headers: await authed() })));
+  ipc.handle('groups.members', async (_e, gid: string) =>
+    envelope<Array<{ user_id: string; role: string; member_epoch: number }>>(axios.get(`${BASE}/groups/${gid}/members`, { headers: await authed() })));
+  ipc.handle('groups.capability', async (_e, gid: string) =>
+    envelope<{ cap: string; epoch: number }>(axios.get(`${BASE}/groups/${gid}/capability`, { headers: await authed() })));
+  ipc.handle('groups.invite', async (_e, gid: string, opts: Record<string, unknown>) =>
+    envelope<{ token: string; expires_at: number }>(axios.post(`${BASE}/groups/${gid}/invites`, opts ?? {}, { headers: await authed() })));
+  ipc.handle('groups.join', async (_e, token: string) =>
+    envelope<{ status: 'joined' | 'pending' | 'already_member'; gid: string }>(axios.post(`${BASE}/groups/join`, { token }, { headers: await authed() })));
+  ipc.handle('groups.joinRequests', async (_e, gid: string) =>
+    envelope<Array<{ user_id: string; created_at: string }>>(axios.get(`${BASE}/groups/${gid}/join-requests`, { headers: await authed() })));
+  ipc.handle('groups.decide', async (_e, gid: string, userId: string, approve: boolean) =>
+    envelope<{ epoch: number | null }>(axios.post(`${BASE}/groups/${gid}/join-requests/${userId}`, { approve }, { headers: await authed() })));
 }
