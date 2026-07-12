@@ -39,10 +39,16 @@ export const VoiceRecorder: React.FC<Props> = ({ onSend }) => {
 
   const start = async (): Promise<void> => {
     const ok = await ensureMicPermission();
-    if (!ok) { Alert.alert('Mic permission denied'); return; }
+    if (!ok) { Alert.alert('Permesso microfono negato', 'Consenti il microfono nelle impostazioni per registrare vocali.'); return; }
     ReactNativeHapticFeedback.trigger('impactMedium', { enableVibrateFallback: true, ignoreAndroidSystemSettings: false });
-    setRecording(true);
-    await voice.startRecord((ms) => setElapsed(ms));
+    try {
+      setRecording(true);
+      await voice.startRecord((ms) => setElapsed(ms));
+    } catch (e) {
+      setRecording(false);
+      setElapsed(0);
+      Alert.alert('Microfono non disponibile', (e as Error)?.message ?? 'Impossibile avviare la registrazione.');
+    }
   };
 
   const commit = async (): Promise<void> => {
@@ -62,7 +68,7 @@ export const VoiceRecorder: React.FC<Props> = ({ onSend }) => {
 
   if (!recording) {
     return (
-      <Pressable onLongPress={start} delayLongPress={180} style={styles.micBtn} hitSlop={10}>
+      <Pressable onPress={start} onLongPress={start} delayLongPress={180} style={styles.micBtn} hitSlop={10}>
         <MicIcon size={22} color={theme.text} />
       </Pressable>
     );
@@ -75,7 +81,7 @@ export const VoiceRecorder: React.FC<Props> = ({ onSend }) => {
     <View style={styles.row}>
       <Animated.View style={[styles.dot, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }]} />
       <Text style={styles.time}>{time}</Text>
-      <Text style={styles.hint}>Hold · release to send</Text>
+      <Text style={styles.hint}>Tocca ➤ per inviare · 🗑 per annullare</Text>
       <Pressable onPress={cancel} style={[styles.act, { backgroundColor: theme.alert }]}>
         <TrashIcon size={16} color="#fff" />
       </Pressable>

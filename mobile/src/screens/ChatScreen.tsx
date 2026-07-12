@@ -166,7 +166,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
   const headerTitle = (
     <View style={{ flex: 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Text style={styles.name} numberOfLines={1}>{peerName}</Text>
+        <Text style={styles.name} numberOfLines={1}>{conversation?.peerName ?? peerName}</Text>
         {!isGroup && trustLevel !== 'unknown' && <TrustBadge level={trustLevel} compact />}
       </View>
       {typing ? (
@@ -185,7 +185,7 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
       <LinearGradient colors={wallpaper.colors} style={StyleSheet.absoluteFill} />
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable>
-        <Avatar name={peerName} size={36} />
+        <Avatar name={conversation?.peerName ?? peerName} size={36} />
         {headerTitle}
         {!isGroup && (
           <>
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 12,
     borderBottomWidth: 1, borderBottomColor: theme.border, gap: 12,
-    backgroundColor: 'rgba(16,18,43,0.92)',
+    backgroundColor: '#F0F2F5',
   },
   back: { color: theme.accent, fontSize: 32, fontWeight: '300', width: 22, marginTop: -4 },
   name: { color: theme.text, fontSize: 15, fontWeight: '700' },
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   composer: {
     flexDirection: 'row', alignItems: 'flex-end',
     paddingHorizontal: 10, paddingVertical: 10, gap: 8,
-    backgroundColor: 'rgba(16,18,43,0.96)',
+    backgroundColor: '#F0F2F5',
     borderTopWidth: 1, borderTopColor: theme.border,
   },
   attach: {

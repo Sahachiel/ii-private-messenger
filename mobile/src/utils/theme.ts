@@ -1,27 +1,27 @@
 export const theme = {
-  // Surfaces — deep navy with subtle warmth
-  bg:       '#08091C',  // near-black with violet undertone
-  bgElev:   '#10122B',  // card background
-  bgCard:   '#171A3A',  // elevated surface
-  bgInput:  '#0C0E24',  // input field
-  border:   '#262A52',  // subtle violet border
-  borderHi: '#3C4280',  // hover/focus border
+  // Surfaces — tema CHIARO stile WhatsApp
+  bg:       '#FFFFFF',  // sfondo schermi/liste
+  bgElev:   '#F0F2F5',  // barre (header/composer/sheet)
+  bgCard:   '#F5F6F6',  // card/avatar
+  bgInput:  '#FFFFFF',  // input field
+  border:   '#E9EDEF',  // bordo tenue
+  borderHi: '#D1D7DB',  // hover/focus border
 
   // Text
-  text:     '#F2F4FA',
-  textDim:  '#98A0C0',
-  textMute: '#5A6088',
+  text:     '#111B21',
+  textDim:  '#667781',
+  textMute: '#8696A0',
 
-  // Accent — electric violet-cyan gradient pair
-  accent:         '#7C5CFF',  // primary violet
-  accentAlt:      '#22D3EE',  // cyan
-  accentBubble:   'rgba(124,92,255,0.15)',
-  accentGlow:     'rgba(124,92,255,0.35)',
+  // Accent — verde WhatsApp
+  accent:         '#00A884',  // verde primario (send/FAB/attivi)
+  accentAlt:      '#53BDEB',  // blu (tick 'letto')
+  accentBubble:   'rgba(0,168,132,0.12)',
+  accentGlow:     'rgba(0,168,132,0.22)',
 
   // Status
-  alert:   '#FF4B6E',
+  alert:   '#EA4335',
   warning: '#FFB547',
-  success: '#3DDC97',
+  success: '#25D366',
 
   // Geometry
   radius:  14,
@@ -40,26 +40,25 @@ export const theme = {
     weightBlack:   '900' as const,
   },
 
-  // Shadow presets
+  // Shadow presets (tenui per tema chiaro)
   shadow: {
-    sm: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 2 },
-    md: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
-    glow: { shadowColor: '#7C5CFF', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 8 },
+    sm: { shadowColor: '#0B141A', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.10, shadowRadius: 3, elevation: 1 },
+    md: { shadowColor: '#0B141A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 4 },
+    glow: { shadowColor: '#00A884', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.30, shadowRadius: 10, elevation: 6 },
   },
 } as const;
 
 export type Theme = typeof theme;
 
-// Chat wallpaper presets — linear-gradient pairs per chat background.
-// User picks from these via ChatScreen header menu. Persisted per-conversation.
+// Chat wallpaper presets — sfondo chat. Default = beige WhatsApp.
 export interface WallpaperPreset { id: string; name: string; colors: [string, string]; noise?: boolean }
 export const WALLPAPERS: readonly WallpaperPreset[] = [
-  { id: 'default', name: 'Navy',     colors: ['#08091C', '#10122B'] },
-  { id: 'violet',  name: 'Violet',   colors: ['#1A0E3A', '#08091C'] },
-  { id: 'cyan',    name: 'Aurora',   colors: ['#0A1E3A', '#10122B'] },
-  { id: 'emerald', name: 'Emerald',  colors: ['#0E2A22', '#08091C'] },
-  { id: 'rose',    name: 'Rose',     colors: ['#2A0E1E', '#10122B'] },
-  { id: 'mono',    name: 'Graphite', colors: ['#141414', '#080808'] },
+  { id: 'default', name: 'Chiaro',   colors: ['#EFEAE2', '#EFEAE2'] },
+  { id: 'mint',    name: 'Menta',    colors: ['#E7F3EC', '#DDECE3'] },
+  { id: 'sand',    name: 'Sabbia',   colors: ['#F3EEE4', '#EAE2D3'] },
+  { id: 'gray',    name: 'Grigio',   colors: ['#F0F2F5', '#E9EDEF'] },
+  { id: 'sky',     name: 'Cielo',    colors: ['#E8F1FB', '#DCEBF7'] },
+  { id: 'rose',    name: 'Rosa',     colors: ['#FBEDEF', '#F5E1E6'] },
 ] as const;
 
 export function wallpaperById(id?: string): WallpaperPreset {

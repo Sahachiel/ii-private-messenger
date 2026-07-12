@@ -3,6 +3,7 @@ import { socket } from '@services/socket';
 import { useAppDispatch, useAppSelector } from '@store/index';
 import { decryptIncoming, updateMessageStatus, setTyping, addMessage } from '@store/chatSlice';
 import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from '@store/callSlice';
+import { navigate } from '../navigation/navRef';
 import { appKv } from '@services/keychain';
 
 export function useSocket(): void {
@@ -47,10 +48,13 @@ export function useSocket(): void {
         case 'call_offer':
           if (ev.from && ev.callType && ev.sdp) {
             let sdp: any; try { sdp = JSON.parse(ev.sdp); } catch { sdp = ev.sdp; }
+            const isVideo = ev.callType === 'video';
             dispatch(receiveCall({
               call: { peerId: ev.from, peerName: ev.from, type: ev.callType, status: 'ringing', isOutgoing: false },
               sdp,
             }));
+            // Apri la schermata chiamata (prima si fermava allo stato redux → nessuna UI, impossibile rispondere).
+            navigate(isVideo ? 'VideoCall' : 'Call', { peerId: ev.from, peerName: ev.from });
           }
           break;
         case 'call_answer':

@@ -26,9 +26,10 @@ function reactionRows(r?: Record<string, string[]>): Array<[string, number]> {
 }
 
 export const MessageBubble: React.FC<Props> = ({ message, mine, senderName, onLongPress, onPressReply, onPressMedia }) => {
-  const bubbleBg = mine ? theme.accent : theme.bgCard;
-  const textColor = mine ? '#FFFFFF' : theme.text;
-  const dimText   = mine ? 'rgba(255,255,255,0.72)' : theme.textDim;
+  // Bolle stile WhatsApp chiaro: uscita verde chiaro, entrata bianco, testo scuro su entrambe.
+  const bubbleBg = mine ? '#D9FDD3' : '#FFFFFF';
+  const textColor = '#111B21';
+  const dimText   = '#667781';
   const reactions = useMemo(() => reactionRows(message.reactions), [message.reactions]);
 
   // Render media body (voice / image / video thumb / file). Absent → text body.
@@ -93,11 +94,11 @@ export const MessageBubble: React.FC<Props> = ({ message, mine, senderName, onLo
         )}
 
         {message.replyTo && (
-          <Pressable onPress={onPressReply} style={[styles.replyStrip, { borderLeftColor: mine ? 'rgba(255,255,255,0.6)' : theme.accent }]}>
-            <Text style={[styles.replySender, { color: mine ? 'rgba(255,255,255,0.85)' : theme.accent }]} numberOfLines={1}>
+          <Pressable onPress={onPressReply} style={[styles.replyStrip, { borderLeftColor: mine ? 'rgba(11,20,26,0.22)' : theme.accent }]}>
+            <Text style={[styles.replySender, { color: mine ? '#025C4C' : theme.accent }]} numberOfLines={1}>
               {message.replyTo.senderId === message.senderId ? (senderName ?? 'You') : 'You'}
             </Text>
-            <Text style={[styles.replyPreview, { color: mine ? 'rgba(255,255,255,0.65)' : theme.textDim }]} numberOfLines={1}>
+            <Text style={[styles.replyPreview, { color: theme.textDim }]} numberOfLines={1}>
               {message.replyTo.preview}
             </Text>
           </Pressable>
@@ -117,7 +118,7 @@ export const MessageBubble: React.FC<Props> = ({ message, mine, senderName, onLo
             <Text style={[styles.ttl, { color: dimText }]}>⏱</Text>
           )}
           <Text style={[styles.ts, { color: dimText }]}>{dayjs(message.sentAt).format('HH:mm')}</Text>
-          {mine && <AnimatedTicks status={message.status} size={14} light />}
+          {mine && <AnimatedTicks status={message.status} size={14} light={false} />}
         </View>
       </View>
 

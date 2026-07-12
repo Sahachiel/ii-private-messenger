@@ -23,7 +23,7 @@ import HapticFeedback from 'react-native-haptic-feedback';
  *  - Default blindato: invito con requires_approval (un admin deve approvare) + scadenza 7gg.
  *    Un link rubato non fa entrare nessuno senza approvazione.
  */
-interface GroupInviteQR { k: 'gi'; t: string }
+interface GroupInviteQR { k: 'gi'; t: string; n?: string }
 
 function isValidToken(t: unknown): t is string {
   return typeof t === 'string' && t.length > 16 && t.length < 4096 && t.split('.').length === 2;
@@ -53,7 +53,7 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
 
   useEffect(() => { if (mode === 'show') void genInvite(); }, [mode, genInvite]);
 
-  const qrData = useMemo(() => (token ? JSON.stringify({ k: 'gi', t: token } as GroupInviteQR) : ''), [token]);
+  const qrData = useMemo(() => (token ? JSON.stringify({ k: 'gi', t: token, n: groupName } as GroupInviteQR) : ''), [token, groupName]);
   const deepLink = useMemo(() => (token ? `iimsg://join?t=${encodeURIComponent(token)}` : ''), [token]);
 
   const shareLink = async (): Promise<void> => {
@@ -74,7 +74,7 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
     } catch (e: any) { Alert.alert('Errore camera', String(e)); }
   };
 
-  const doJoin = useCallback(async (t: string): Promise<void> => {
+  const doJoin = useCallback(async (t: string, groupName?: string): Promise<void> => {
     if (joining) return;
     setJoining(true);
     try {
@@ -88,10 +88,12 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
       const myId = appKv.getString('auth.userId') ?? '';
       let members: string[] = [myId];
       try { members = (await groupsApi.members(gid)).map((m) => m.user_id); } catch { /* placeholder */ }
-      // Nome reale del gruppo: arriva cifrato (systemText) dopo il primo messaggio. Placeholder ora.
-      dispatch(upsertGroup({ id: gid, name: 'Gruppo', memberIds: members, adminIds: [], createdAt: Date.now(), createdBy: '' }));
-      dispatch(upsertConversation({ id: gid, peerId: gid, peerName: 'Gruppo', isGroup: true, unreadCount: 0, muted: false, archived: false, updatedAt: Date.now() }));
-      navigation.replace('Chat', { conversationId: gid, peerId: gid, peerName: 'Gruppo', isGroup: true });
+      // Nome dal QR se presente (client-side, non tocca il server); altrimenti placeholder finché
+      // non arriva un messaggio con gname.
+      const nm = (groupName && groupName.trim()) ? groupName.trim() : 'Gruppo';
+      dispatch(upsertGroup({ id: gid, name: nm, memberIds: members, adminIds: [], createdAt: Date.now(), createdBy: '' }));
+      dispatch(upsertConversation({ id: gid, peerId: gid, peerName: nm, isGroup: true, unreadCount: 0, muted: false, archived: false, updatedAt: Date.now() }));
+      navigation.replace('Chat', { conversationId: gid, peerId: gid, peerName: nm, isGroup: true });
     } catch (e: any) {
       Alert.alert('Invito non valido', 'Il token è scaduto, revocato o non valido.', [{ text: 'OK' }]);
     } finally { setJoining(false); }
@@ -111,7 +113,7 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
         return;
       }
       HapticFeedback.trigger('notificationSuccess', { enableVibrateFallback: true, ignoreAndroidSystemSettings: false });
-      void doJoin(parsed.t);
+      void doJoin(parsed.t, parsed.n);
     },
   });
 

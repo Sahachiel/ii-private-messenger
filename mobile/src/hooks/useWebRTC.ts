@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { MediaStream } from 'react-native-webrtc';
 import { webrtc } from '@services/webrtc';
 import { socket } from '@services/socket';
@@ -23,32 +24,54 @@ export function useWebRTC(peerId: string | null, callType: CallType, opts: { isC
     let cancelled = false;
 
     (async () => {
-      webrtc.onRemoteStream = (s) => { remoteRef.current = s; };
-      webrtc.onIceCandidate = (c) => socket.send({ type: 'ice_candidate', callId, to: peerId, candidate: c });
-      // Qualità REALE dal loop getStats (loss/jitter/rtt), non più un valore fisso.
-      webrtc.onQuality = (q) => dispatch(setConnectionQuality(q));
-      webrtc.onConnectionStateChange = (state) => {
-        if (state === 'connected') {
-          dispatch(setStatus('connected'));
-          dispatch(setConnectionQuality('good'));
-          durationTimer.current = setInterval(() => dispatch(tickDuration()), 1000);
-        } else if (state === 'disconnected' || state === 'failed') {
-          dispatch(setStatus('reconnecting'));
-          dispatch(setConnectionQuality('poor'));
+      // Permessi runtime Android PRIMA di getUserMedia: senza, la chiamata falliva con errore mic/camera.
+      if (Platform.OS === 'android') {
+        const perms: string[] = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+        if (callType === 'video') perms.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+        try {
+          const res = await PermissionsAndroid.requestMultiple(perms as any);
+          const denied = perms.some((p) => (res as any)[p] !== PermissionsAndroid.RESULTS.GRANTED);
+          if (denied) {
+            Alert.alert('Permesso negato', callType === 'video' ? 'Servono microfono e fotocamera per la chiamata.' : 'Serve il microfono per la chiamata.');
+            dispatch(endCall());
+            return;
+          }
+        } catch { /* prosegui: getUserMedia riproverà */ }
+      }
+
+      try {
+        webrtc.onRemoteStream = (s) => { remoteRef.current = s; };
+        webrtc.onIceCandidate = (c) => socket.send({ type: 'ice_candidate', callId, to: peerId, candidate: c });
+        // Qualità REALE dal loop getStats (loss/jitter/rtt), non più un valore fisso.
+        webrtc.onQuality = (q) => dispatch(setConnectionQuality(q));
+        webrtc.onConnectionStateChange = (state) => {
+          if (state === 'connected') {
+            dispatch(setStatus('connected'));
+            dispatch(setConnectionQuality('good'));
+            durationTimer.current = setInterval(() => dispatch(tickDuration()), 1000);
+          } else if (state === 'disconnected' || state === 'failed') {
+            dispatch(setStatus('reconnecting'));
+            dispatch(setConnectionQuality('poor'));
+          }
+        };
+
+        await webrtc.initialize(turn, callType);
+        if (cancelled) return;
+        localRef.current = webrtc.localStream;
+
+        if (opts.isCaller) {
+          const offer = await webrtc.createOffer();
+          socket.send({ type: 'call_offer', callId, to: peerId, sdp: JSON.stringify(offer), callType });
+          dispatch(setStatus('dialing'));
+        } else if (opts.remoteSDPInitial) {
+          const answer = await webrtc.handleOffer(opts.remoteSDPInitial);
+          socket.send({ type: 'call_answer', callId, to: peerId, sdp: JSON.stringify(answer) });
         }
-      };
-
-      await webrtc.initialize(turn, callType);
-      if (cancelled) return;
-      localRef.current = webrtc.localStream;
-
-      if (opts.isCaller) {
-        const offer = await webrtc.createOffer();
-        socket.send({ type: 'call_offer', callId, to: peerId, sdp: JSON.stringify(offer), callType });
-        dispatch(setStatus('dialing'));
-      } else if (opts.remoteSDPInitial) {
-        const answer = await webrtc.handleOffer(opts.remoteSDPInitial);
-        socket.send({ type: 'call_answer', callId, to: peerId, sdp: JSON.stringify(answer) });
+      } catch (e) {
+        if (!cancelled) {
+          Alert.alert('Chiamata non avviata', (e as Error)?.message ?? 'Microfono/fotocamera non disponibili.');
+          dispatch(endCall());
+        }
       }
     })();
 

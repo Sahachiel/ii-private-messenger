@@ -211,11 +211,11 @@ async function leaveGroupFlow(gid) {
 async function inviteToGroup(gid) {
   try {
     const res = await iimsg.groups.invite(gid, { requires_approval: false, max_uses: 5, ttl_seconds: 86400 });
-    showInviteDialog(res.token);
+    showInviteDialog(res.token, (state.groups[gid] && state.groups[gid].name) || '');
   } catch (e) { toast('Generazione invito fallita: ' + (e.message || e)); }
 }
 
-function showInviteDialog(token) {
+function showInviteDialog(token, groupName) {
   const overlay = el('div', { class: 'lightbox', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
   const card = el('div', { style: 'background:#FFFFFF;padding:22px;border-radius:14px;max-width:440px;color:#111B21;font:13px system-ui;text-align:center;' });
   card.appendChild(el('div', { style: 'font-weight:700;margin-bottom:8px;font-size:15px;' }, 'Invito al gruppo'));
@@ -227,7 +227,7 @@ function showInviteDialog(token) {
   if (typeof window.qrcode === 'function') {
     // Il mobile scansiona SOLO il formato {k:'gi', t:<token>} (GroupInviteScreen). Codificare il
     // token grezzo faceva "QR non valido/formato non riconosciuto" sul telefono.
-    const qrPayload = JSON.stringify({ k: 'gi', t: token });
+    const qrPayload = JSON.stringify(groupName ? { k: 'gi', t: token, n: groupName } : { k: 'gi', t: token });
     try { const q = window.qrcode(0, 'M'); q.addData(qrPayload); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); const svg = qr.querySelector('svg'); if (svg) { svg.setAttribute('width', '200'); svg.setAttribute('height', '200'); } } catch {}
   }
   card.appendChild(qr);
