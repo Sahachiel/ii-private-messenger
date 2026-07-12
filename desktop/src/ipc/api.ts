@@ -37,11 +37,16 @@ async function refreshAccessToken(): Promise<string | null> {
   return null;
 }
 
-async function authed(): Promise<Record<string, string>> {
-  // Rinnovo PROATTIVO: l'access token scade in 15min; senza refresh, gruppi/chiamate davano
-  // "jwt expired". Se è scaduto (o sta per), lo rinnoviamo col refresh token prima della chiamata.
+// Ritorna un access token VALIDO (rinnova col refresh token se scaduto). Usato sia da authed()
+// per le API sia dal socket per (ri)autenticarsi al relay senza restare col token scaduto.
+export async function getValidToken(): Promise<string | null> {
   let t = await getToken();
   if (t && jwtExpired(t)) t = (await refreshAccessToken()) ?? t;
+  return t;
+}
+
+async function authed(): Promise<Record<string, string>> {
+  const t = await getValidToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

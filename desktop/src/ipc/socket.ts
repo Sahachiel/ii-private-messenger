@@ -1,24 +1,17 @@
 import { IpcMain, BrowserWindow } from 'electron';
 import WebSocket from 'ws';
-import Store from 'electron-store';
+import { getValidToken } from './api';
 
-// Stesso store (default 'config') usato da api.ts: il JWT reale vive SOLO nel main process,
-// non viene mai esposto alla renderer. La renderer chiama socket.connect con il placeholder
-// 'in-main-process' e qui risolviamo il token vero dallo store, altrimenti il relay chiude
-// subito la connessione (auth fallita) e niente messaggi/chiamate funziona.
-const store = new Store<{ accessToken?: string }>();
+// Il JWT reale vive SOLO nel main process. La renderer chiama socket.connect col placeholder
+// 'in-main-process'; qui prendiamo SEMPRE un token VALIDO (rinnovato se scaduto) da api.ts, così
+// a ogni (ri)connessione ci si autentica con un token buono. Prima il socket cachava il token del
+// primo connect e i reconnect ritentavano con quello scaduto → il relay chiudeva → mai OPEN.
 
 let ws: WebSocket | null = null;
 let intentional = false;
 let lastUrl = '';
-let lastToken = '';
 let backoff = 1000;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-function resolveToken(passed: string): string {
-  if (passed && passed !== 'in-main-process') return passed;
-  return (store.get('accessToken') as string) ?? '';
-}
 
 export function registerSocketIpc(ipc: IpcMain, getWindow: () => BrowserWindow | null): void {
   function forward(ev: unknown): void {
@@ -38,11 +31,17 @@ export function registerSocketIpc(ipc: IpcMain, getWindow: () => BrowserWindow |
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       backoff = Math.min(backoff * 2, 30000);
-      if (!intentional && lastUrl) open(lastUrl, lastToken);
+      if (!intentional && lastUrl) void open(lastUrl);
     }, delay);
   }
 
-  function open(url: string, token: string): void {
+  async function open(url: string): Promise<void> {
+    const token = await getValidToken();
+    if (!token) {
+      forward({ type: 'error', error: 'no_access_token' });
+      scheduleReconnect();
+      return;
+    }
     try {
       ws?.removeAllListeners();
       ws?.close();
@@ -70,18 +69,12 @@ export function registerSocketIpc(ipc: IpcMain, getWindow: () => BrowserWindow |
     });
   }
 
-  ipc.handle('socket.connect', async (_e, relayUrl: string, accessToken: string) => {
+  ipc.handle('socket.connect', async (_e, relayUrl: string, _accessToken: string) => {
     intentional = false;
     clearReconnect();
     backoff = 1000;
     lastUrl = relayUrl;
-    lastToken = resolveToken(accessToken);
-    if (!lastToken) {
-      // niente token → il relay chiuderebbe subito: segnaliamo alla UI invece di fallire in silenzio.
-      forward({ type: 'error', error: 'no_access_token' });
-      return false;
-    }
-    open(lastUrl, lastToken);
+    await open(lastUrl);
     return true;
   });
 
