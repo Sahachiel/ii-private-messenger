@@ -3,6 +3,13 @@ import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messag
 import firebase from '@react-native-firebase/app';
 import { Platform } from 'react-native';
 import { usersApi } from './api';
+import { appKv } from './keychain';
+
+// Privacy: di default le notifiche NON mostrano mittente né testo (solo "Nuovo messaggio"),
+// così nulla trapela dalla lockscreen. L'utente può riattivare l'anteprima dalle impostazioni.
+const KEY_HIDE = 'notify.hideContent';
+export function isNotifyContentHidden(): boolean { return appKv.getBoolean(KEY_HIDE) ?? true; }
+export function setNotifyContentHidden(v: boolean): void { appKv.set(KEY_HIDE, v); }
 
 // Firebase è OPZIONALE: se l'APK è compilato senza google-services.json non esiste il
 // FirebaseApp di default e qualunque chiamata a messaging() lancia ("Default FirebaseApp is
@@ -55,17 +62,20 @@ export async function ensureChannels(): Promise<void> {
 }
 
 export async function displayMessageNotification(title: string, body: string): Promise<void> {
+  const hide = isNotifyContentHidden();
   await notifee.displayNotification({
-    title, body,
+    title: hide ? 'II Private Messenger' : title,
+    body: hide ? 'Nuovo messaggio' : body,
     android: { channelId: 'messages', smallIcon: 'ic_launcher', pressAction: { id: 'default' } },
     ios: { sound: 'default' },
   });
 }
 
 export async function displayIncomingCall(from: string, callType: 'voice' | 'video'): Promise<void> {
+  const hide = isNotifyContentHidden();
   await notifee.displayNotification({
-    title: callType === 'video' ? 'Incoming video call' : 'Incoming call',
-    body: from,
+    title: callType === 'video' ? 'Videochiamata in arrivo' : 'Chiamata in arrivo',
+    body: hide ? 'Tocca per rispondere' : from,
     android: { channelId: 'calls', smallIcon: 'ic_launcher', ongoing: true, fullScreenAction: { id: 'default' } },
     ios: { sound: 'ringtone', critical: true },
   });

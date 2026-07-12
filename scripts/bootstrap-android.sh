@@ -112,6 +112,18 @@ if [ -f "$MAINAPP" ] && ! grep -q "AntiCensorshipPackage" "$MAINAPP"; then
   echo "  ~ MainApplication: registrato AntiCensorshipPackage"
 fi
 
+# 7b) Inietta ScreenSecurityPackage nel MainApplication (anti-screenshot FLAG_SECURE runtime)
+if [ -f "$MAINAPP" ] && ! grep -q "ScreenSecurityPackage" "$MAINAPP"; then
+  sed -i "s|^package $PKG|package $PKG\n\nimport $PKG.security.ScreenSecurityPackage|" "$MAINAPP" || true
+  # accoda al blocco .apply { ... } se già presente, altrimenti crealo
+  if grep -q "add(AntiCensorshipPackage())" "$MAINAPP"; then
+    sed -i "s|add(AntiCensorshipPackage())|add(AntiCensorshipPackage()); add(ScreenSecurityPackage())|" "$MAINAPP" || true
+  else
+    sed -i "s|PackageList(this).packages|PackageList(this).packages.apply { add(ScreenSecurityPackage()) }|" "$MAINAPP" || true
+  fi
+  echo "  ~ MainApplication: registrato ScreenSecurityPackage"
+fi
+
 # 8) AndroidManifest: usa il template e aggiungi permessi + VpnService
 MAN="$ANDROID/app/src/main/AndroidManifest.xml"
 [ -f "$MAN" ] || cp "$TEMPLATE/app/src/main/AndroidManifest.xml" "$MAN"

@@ -11,12 +11,14 @@ import { ensureChannels, requestNotificationPermission, registerFcm } from '@ser
 import { mtd } from '@/xsec-mtd/engine/MTDEngine';
 import { loadPolicy } from '@/xsec-mtd/policy';
 import { KC, appKv, getSecureKv } from '@services/keychain';
+import { applyScreenProtect } from '@services/screenSecurity';
 import { sweepExpiredNow } from '@store/chatSlice';
 import { sweepExpired as sweepStories } from '@store/storiesSlice';
 
 export default function App() {
   useEffect(() => {
     (async () => {
+      await applyScreenProtect(); // FLAG_SECURE secondo preferenza (default ON)
       await ensureChannels();
       const ok = await requestNotificationPermission();
       if (ok) await registerFcm();

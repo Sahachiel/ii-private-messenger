@@ -6,6 +6,8 @@ import { logoutUser } from '@store/authSlice';
 import { signal } from '@services/signal';
 import { transport, TransportState } from '@services/transport';
 import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry } from '@services/appLock';
+import { isScreenProtectEnabled, applyScreenProtect } from '@services/screenSecurity';
+import { isNotifyContentHidden, setNotifyContentHidden } from '@services/notifications';
 import { theme } from '@utils/theme';
 import { COUNTRY_LIST } from '@utils/countries';
 import { sha256Hex } from '@utils/crypto';
@@ -19,11 +21,12 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   const [appVer, setAppVer] = useState('—');
   const [fingerprint, setFingerprint] = useState('—');
-  const [screenProtect, setScreenProtect] = useState(true);
+  const [screenProtect, setScreenProtect] = useState(isScreenProtectEnabled());
   const graceToKey = (g: number): '1'|'5'|'30'|'never' => (g >= 3.15e9 ? 'never' : g >= 1800 ? '30' : g >= 300 ? '5' : '1');
   const [autoLock, setAutoLock] = useState<'1'|'5'|'30'|'never'>(graceToKey(getGraceSec()));
   const [lockEnabled, setLockEnabled] = useState(isLockEnabled());
   const [biometry, setBiometry] = useState<string | null>(null);
+  const [notifPreview, setNotifPreview] = useState(!isNotifyContentHidden());
   const [jailbroken, setJailbroken] = useState(false);
   const [antiCensorship, setAntiCensorship] = useState(transport.getManualEnabled());
   const [tunnelState, setTunnelState] = useState<TransportState>(transport.getState());
@@ -84,6 +87,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   const toggleScreenProtect = (v: boolean) => {
     setScreenProtect(v);
+    void applyScreenProtect(v); // FLAG_SECURE nativo (anti-screenshot)
   };
 
   const confirmLogout = () => Alert.alert('Sign out', 'Your session and keys remain on device.', [
@@ -126,6 +130,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
             <Text style={styles.rowLabel}>Blocco automatico</Text>
             <Text style={styles.rowValue}>{autoLock === 'never' ? 'Solo all’avvio' : autoLock === '1' && getGraceSec() === 0 ? 'Subito' : `${autoLock} min`}</Text>
           </Pressable>
+          <SwitchRow label="Anteprima notifiche" value={notifPreview} onChange={(v) => { setNotifPreview(v); setNotifyContentHidden(!v); }} />
         </Section>
 
         <Section title="Routing">
