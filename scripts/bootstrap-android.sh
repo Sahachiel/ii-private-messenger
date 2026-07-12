@@ -43,9 +43,15 @@ cp -n "$TEMPLATE/app/src/main/res/values/"* "$ANDROID/app/src/main/res/values/" 
 SRC_JAVA="$TEMPLATE/app/src/main/java/com/helloworld"
 DST_JAVA="$ANDROID/app/src/main/java/$PKG_PATH"
 mkdir -p "$DST_JAVA"
+# Nome del componente RN da app.json: DEVE combaciare con AppRegistry.registerComponent(name) in
+# index.js, altrimenti il release crasha subito con: Invariant Violation "HelloWorld" has not been
+# registered (il template restituisce "HelloWorld" da getMainComponentName; in debug non si vede
+# perche il JS non viene mai caricato senza Metro, in release invece esplode allo startup).
+RN_NAME=$(grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]+"' "$MOBILE_DIR/app.json" | head -1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')
+[ -z "$RN_NAME" ] && RN_NAME="IIPrivateMessenger"
 for f in MainActivity.kt MainApplication.kt; do
   if [ ! -f "$DST_JAVA/$f" ] && [ -f "$SRC_JAVA/$f" ]; then
-    sed "s/com\.helloworld/$PKG/g" "$SRC_JAVA/$f" > "$DST_JAVA/$f"; echo "  + java/$PKG_PATH/$f"
+    sed "s/com\.helloworld/$PKG/g; s/\"HelloWorld\"/\"$RN_NAME\"/g" "$SRC_JAVA/$f" > "$DST_JAVA/$f"; echo "  + java/$PKG_PATH/$f (componente RN: $RN_NAME)"
   fi
 done
 

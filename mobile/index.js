@@ -1,3 +1,6 @@
+// gesture-handler DEVE essere importato per primo (richiesto da @react-navigation/stack),
+// altrimenti in release si rischiano crash/instabilita di navigazione.
+import 'react-native-gesture-handler';
 // PRNG polyfill — install globalThis.crypto.getRandomValues BEFORE tweetnacl loads.
 import 'react-native-get-random-values';
 import { Buffer } from 'buffer';

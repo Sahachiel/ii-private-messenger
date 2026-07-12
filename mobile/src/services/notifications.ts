@@ -1,21 +1,30 @@
 import notifee, { AndroidImportance, AuthorizationStatus, EventType } from '@notifee/react-native';
 import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
+import firebase from '@react-native-firebase/app';
 import { Platform } from 'react-native';
 import { usersApi } from './api';
 
-export async function requestNotificationPermission(): Promise<boolean> {
-  if (Platform.OS === 'ios') {
-    const settings = await notifee.requestPermission();
-    return settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
+// Firebase è OPZIONALE: se l'APK è compilato senza google-services.json non esiste il
+// FirebaseApp di default e qualunque chiamata a messaging() lancia ("Default FirebaseApp is
+// not initialized"). Prima l'app chiamava messaging().requestPermission() allo startup →
+// crash immediato del release. Ora ogni uso di messaging() è protetto: senza Firebase l'app
+// funziona lo stesso, solo senza notifiche push.
+function firebaseReady(): boolean {
+  try {
+    return firebase.apps.length > 0;
+  } catch {
+    return false;
   }
-  const authStatus = await messaging().requestPermission();
-  return (
-    authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-    authStatus === messaging.AuthorizationStatus.PROVISIONAL
-  );
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  // notifee gestisce il permesso su iOS e Android 13+ SENZA dipendere da Firebase.
+  const settings = await notifee.requestPermission();
+  return settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
 }
 
 export async function registerFcm(): Promise<string | null> {
+  if (!firebaseReady()) return null;
   try {
     await messaging().registerDeviceForRemoteMessages();
     const token = await messaging().getToken();
@@ -28,6 +37,7 @@ export async function registerFcm(): Promise<string | null> {
 }
 
 export function onTokenRefresh(cb: (t: string) => void): () => void {
+  if (!firebaseReady()) return () => {};
   return messaging().onTokenRefresh(async (t) => {
     try { await usersApi.updateFcmToken(t); } catch {}
     cb(t);
@@ -62,10 +72,12 @@ export async function displayIncomingCall(from: string, callType: 'voice' | 'vid
 }
 
 export function onForegroundMessage(handler: (m: FirebaseMessagingTypes.RemoteMessage) => void): () => void {
+  if (!firebaseReady()) return () => {};
   return messaging().onMessage(async (m) => handler(m));
 }
 
 export function onBackgroundMessage(handler: (m: FirebaseMessagingTypes.RemoteMessage) => Promise<void>): void {
+  if (!firebaseReady()) return;
   messaging().setBackgroundMessageHandler(handler);
 }
 
