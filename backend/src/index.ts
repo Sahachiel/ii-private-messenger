@@ -75,10 +75,12 @@ async function main(): Promise<void> {
     res.status(status).json({ success: false, error: msg });
   });
 
-  // Warm Redis connection at boot
-  await getRedis();
+  // Warm Redis connection at boot — NON bloccante: se redis è irraggiungibile/misconfigurato,
+  // l'API deve comunque partire e ascoltare (altrimenti nginx dà 502 su TUTTO). Le funzioni che
+  // usano redis (auth/jwt) degradano finché redis non torna; il client riconnette in background.
+  getRedis().catch((e) => console.error('[redis] warm-up failed (continuo senza):', (e as Error).message));
   // Warm Postgres
-  await pool.query('SELECT 1');
+  try { await pool.query('SELECT 1'); } catch (e) { console.error('[pg] warm-up failed:', (e as Error).message); }
   // Apply migrations (idempotent)
   try { await applyMigrations(); } catch (e) { console.error('[migrations] failed:', (e as Error).message); }
   // Ensure MTD admin key exists (generates on first boot)

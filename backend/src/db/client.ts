@@ -17,7 +17,12 @@ pool.on('error', (err: Error) => {
 });
 
 export async function createRedis(): Promise<RedisClientType> {
-  const client: RedisClientType = createClient({ url: config.redisUrl });
+  // La password redis viaggia SEPARATA (config.redisPassword da REDIS_PASSWORD), non dentro
+  // l'URL: così l'URL resta host:port e non si rompe con caratteri speciali nella password.
+  const client: RedisClientType = createClient({
+    url: config.redisUrl,
+    ...(config.redisPassword ? { password: config.redisPassword } : {}),
+  });
   client.on('error', (err: Error) => {
     // eslint-disable-next-line no-console
     console.error('[redis] error:', err.message);

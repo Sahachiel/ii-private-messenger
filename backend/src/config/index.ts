@@ -68,6 +68,9 @@ export const config = {
 
   databaseUrl: required('DATABASE_URL', 'postgres://iipm:iipm@localhost:5432/iipm'),
   redisUrl: required('REDIS_URL', 'redis://localhost:6379'),
+  // Password redis separata (opzionale): redis gira con --requirepass; passandola qui il client
+  // autentica anche se l'URL è solo host:port. Vuota/assente = redis senza auth.
+  redisPassword: process.env.REDIS_PASSWORD || undefined,
 
   jwt: {
     secret: required('JWT_SECRET', 'dev-insecure-jwt-secret-change-me'),
