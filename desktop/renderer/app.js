@@ -128,6 +128,25 @@ function renderAuth() {
   const password = el('input', { type: 'password', placeholder: 'password' });
   const dispname = mode === 'register' ? el('input', { placeholder: 'display name' }) : null;
   view.appendChild(username); view.appendChild(password);
+  if (mode === 'register') {
+    const pwHint = el('div', { class: 'pw-hint' });
+    const reqs = [
+      { re: /.{8,}/, txt: '8+ caratteri' },
+      { re: /[A-Z]/, txt: '1 maiuscola' },
+      { re: /[a-z]/, txt: '1 minuscola' },
+      { re: /[0-9]/, txt: '1 numero' },
+    ];
+    const paint = () => {
+      pwHint.innerHTML = '';
+      for (const r of reqs) {
+        const ok = r.re.test(password.value);
+        pwHint.appendChild(el('span', { class: 'pw-req ' + (ok ? 'ok' : 'no') }, (ok ? '✓ ' : '○ ') + r.txt));
+      }
+    };
+    password.oninput = paint;
+    paint();
+    view.appendChild(pwHint);
+  }
   if (dispname) view.appendChild(dispname);
   view.appendChild(el('div', { class: 'hint' }, 'End-to-end encrypted. Keys stored on this device only.'));
   const errBox = el('div', { class: 'err' }, '');
@@ -136,7 +155,11 @@ function renderAuth() {
       errBox.textContent = '';
       if (mode === 'register') {
         if (username.value.trim().length < 3) { errBox.textContent = 'Username: minimo 3 caratteri'; return; }
-        if (password.value.length < 8) { errBox.textContent = 'Password: minimo 8 caratteri'; return; }
+        const pw = password.value;
+        if (pw.length < 8 || !/[A-Z]/.test(pw) || !/[a-z]/.test(pw) || !/[0-9]/.test(pw)) {
+          errBox.textContent = 'Password: minimo 8 caratteri, con almeno 1 MAIUSCOLA, 1 minuscola e 1 numero.';
+          return;
+        }
       }
       try {
         if (mode === 'login') {

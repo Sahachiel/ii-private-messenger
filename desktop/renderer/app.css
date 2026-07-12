@@ -229,3 +229,8 @@ body {
 @keyframes recpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 .bubble-video { display: block; margin-top: 4px; max-width: 280px; border-radius: 10px; }
 .bubble-file { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: #ffd45e; text-decoration: none; }
+
+/* ---------- Requisiti password ---------- */
+.pw-hint { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: -4px 2px 10px; font-size: 12px; }
+.pw-req { color: #64748b; transition: color .15s; }
+.pw-req.ok { color: #22c55e; font-weight: 600; }
