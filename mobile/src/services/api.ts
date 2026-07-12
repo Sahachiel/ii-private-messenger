@@ -17,8 +17,12 @@ const SSL_PINS = [
   'sha256/4BbXj4s1g1WlRHdpKcaP2FXMVvZD5NXlc1XFFpWLcnk=', // iimsg-api leaf (scad 2026-07-14)
   'sha256/jALHuxwxFeM8XuQox8IM4IkmpJ9iemaL92nL8ehRtBs=', // iimsg-ru leaf
   'sha256/APhF5EKb0Lmde/PkRV4TqrZmPZuTsnsP5D5UnjysunM=', // iimsg-ge leaf
-  'sha256/K7rZOrXHknnsEhUH8nLL4MZkejquUuIvOIr6tCa0rbo=', // LE R10 intermediate
-  'sha256/bdrBhpj38ffhxpubzkINl0rG+UyossdhcBYj+Zx2fcc=', // LE R11 intermediate
+  // Intermediate ATTUALE della catena live = Let's Encrypt E7 (ECDSA). Il backend è migrato
+  // da RSA (R10/R11) a ECDSA (E7): senza questo pin, al rinnovo del leaf (imminente) il pinning
+  // fallirebbe e ROMPEREBBE tutto l'HTTPS su Android. Pinnare l'intermediate sopravvive ai renewals.
+  'sha256/y7xVm0TVJNahMr2sZydE2jQH8SquXV9yLF9seROHHHU=', // LE E7 intermediate (ECDSA) — catena live
+  'sha256/K7rZOrXHknnsEhUH8nLL4MZkejquUuIvOIr6tCa0rbo=', // LE R10 intermediate (RSA, legacy)
+  'sha256/bdrBhpj38ffhxpubzkINl0rG+UyossdhcBYj+Zx2fcc=', // LE R11 intermediate (RSA, legacy)
   'sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=', // ISRG Root X1
 ];
 
