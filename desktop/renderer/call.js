@@ -53,7 +53,17 @@
   }
 
   async function ensureMedia(video) {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!video });
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!video });
+    } catch (e) {
+      // Videochiamata su un PC SENZA webcam? Ripiega su solo-audio invece di far fallire tutto.
+      if (video) {
+        try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); }
+        catch (e2) { throw new Error('mic_denied'); }
+      } else {
+        throw new Error('mic_denied');
+      }
+    }
     const lv = document.getElementById('call-local');
     if (lv) { lv.srcObject = localStream; lv.muted = true; }
     return localStream;
@@ -77,7 +87,7 @@
     if (call) return;
     const t = await getTurn();
     const callId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-    call = { callId, peerId, peerName: peerName || String(peerId).slice(0, 8), callType: video ? 'video' : 'audio', isOutgoing: true };
+    call = { callId, peerId, peerName: peerName || String(peerId).slice(0, 8), callType: video ? 'video' : 'voice', isOutgoing: true };
     showOverlay(); setMode('calling'); setStatus('Chiamata in corso…');
     try {
       pc = newPeer(t);
@@ -86,7 +96,10 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       iimsg.socket.send({ type: 'call_offer', callId, to: peerId, sdp: JSON.stringify(offer), callType: call.callType });
-    } catch (e) { setStatus('Errore microfono/camera'); setTimeout(() => hangup(true), 1500); }
+    } catch (e) {
+      setStatus(e && e.message === 'mic_denied' ? 'Microfono non disponibile o bloccato (Impostazioni Windows → Privacy → Microfono)' : 'Errore avvio chiamata');
+      setTimeout(() => hangup(true), 2400);
+    }
   }
 
   // ---------- incoming ----------
@@ -112,7 +125,10 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       iimsg.socket.send({ type: 'call_answer', callId: call.callId, to: call.peerId, sdp: JSON.stringify(answer) });
-    } catch (e) { setStatus('Errore microfono/camera'); setTimeout(() => hangup(true), 1500); }
+    } catch (e) {
+      setStatus(e && e.message === 'mic_denied' ? 'Microfono non disponibile o bloccato (Impostazioni Windows → Privacy → Microfono)' : 'Errore risposta chiamata');
+      setTimeout(() => hangup(true), 2400);
+    }
   }
 
   async function onAnswer(ev) {

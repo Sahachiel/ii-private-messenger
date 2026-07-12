@@ -130,11 +130,11 @@ async function loadGroups() {
 function askInput(title, placeholder, opts) {
   return new Promise((resolve) => {
     const overlay = el('div', { class: 'lightbox' });
-    const card = el('div', { style: 'background:#141a2e;padding:22px;border-radius:14px;max-width:440px;width:88%;color:#fff;font:13px system-ui;' });
+    const card = el('div', { style: 'background:#FFFFFF;padding:22px;border-radius:14px;max-width:440px;width:88%;color:#111B21;font:13px system-ui;' });
     card.appendChild(el('div', { style: 'font-weight:700;margin-bottom:12px;font-size:15px;' }, title));
     const input = el(opts && opts.multiline ? 'textarea' : 'input', {
       placeholder: placeholder || '',
-      style: 'width:100%;box-sizing:border-box;padding:10px;background:#0b0f1e;color:#fff;border:1px solid #2a3350;border-radius:8px;font:13px system-ui;' + (opts && opts.multiline ? 'height:72px;resize:vertical;' : ''),
+      style: 'width:100%;box-sizing:border-box;padding:10px;background:#F0F2F5;color:#111B21;border:1px solid #E9EDEF;border-radius:8px;font:13px system-ui;' + (opts && opts.multiline ? 'height:72px;resize:vertical;' : ''),
     });
     card.appendChild(input);
     const done = (v) => { overlay.remove(); resolve(v); };
@@ -217,10 +217,10 @@ async function inviteToGroup(gid) {
 
 function showInviteDialog(token) {
   const overlay = el('div', { class: 'lightbox', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
-  const card = el('div', { style: 'background:#141a2e;padding:22px;border-radius:14px;max-width:440px;color:#fff;font:13px system-ui;text-align:center;' });
+  const card = el('div', { style: 'background:#FFFFFF;padding:22px;border-radius:14px;max-width:440px;color:#111B21;font:13px system-ui;text-align:center;' });
   card.appendChild(el('div', { style: 'font-weight:700;margin-bottom:8px;font-size:15px;' }, 'Invito al gruppo'));
   card.appendChild(el('div', { style: 'opacity:.8;margin-bottom:12px;line-height:1.4;' }, 'Condividi questo token: l’altra persona lo incolla su "Unisciti" (desktop) o scansiona il QR dal telefono.'));
-  const ta = el('textarea', { readonly: '', style: 'width:100%;height:64px;background:#0b0f1e;color:#8ecbff;border:1px solid #2a3350;border-radius:8px;padding:8px;font:11px monospace;box-sizing:border-box;' });
+  const ta = el('textarea', { readonly: '', style: 'width:100%;height:64px;background:#F0F2F5;color:#027EB5;border:1px solid #E9EDEF;border-radius:8px;padding:8px;font:11px monospace;box-sizing:border-box;' });
   ta.value = token;
   card.appendChild(ta);
   const qr = el('div', { style: 'margin:12px auto;' });
