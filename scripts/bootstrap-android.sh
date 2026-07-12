@@ -67,6 +67,15 @@ fi
 ROOTGRADLE="$ANDROID/build.gradle"
 [ -f "$ROOTGRADLE" ] && sed -i "s/minSdkVersion = 2[0-9]/minSdkVersion = 26/" "$ROOTGRADLE" || true
 
+# Fix "android:attr/lStar not found" nella verifica risorse del RELEASE: alcune lib RN vecchie
+# (es. react-native-ssl-pinning) hanno compileSdkVersion < 31 hardcoded → il release (che fa
+# verifyReleaseResources, il debug no) fallisce. Bumpo a 34 le lib con compileSdk 20-30.
+NM="$MOBILE_DIR/node_modules"
+if [ -d "$NM" ]; then
+  find "$NM" -path '*/android/build.gradle' -exec sed -i -E 's/compileSdkVersion (2[0-9]|30)([^0-9]|$)/compileSdkVersion 34\2/g' {} + 2>/dev/null || true
+  echo "  ~ node_modules: compileSdkVersion delle lib vecchie forzato a 34 (fix lStar release)"
+fi
+
 # Rimuove il repo Sonatype OSS DISMESSO (oss.sonatype.org -> HTTP 504) che il plugin gradle di RN
 # aggiunge per le nightly. react-android/infer-annotation sono su Maven Central: senza questa rimozione
 # il 504 di Sonatype fa fallire la dependency resolution (regressione infra, non del codice).
