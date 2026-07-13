@@ -37,6 +37,17 @@ class Re4lityVpnService : VpnService() {
   private fun startTunnel(intent: Intent) {
     setState("connecting")
     startForeground(NOTIF_ID, buildNotification())
+
+    // ONESTÀ CRITICA: se il core sing-box (libbox.aar) NON è linkato in questa build, NON dobbiamo
+    // stabilire il tun. Un tun con addRoute(0.0.0.0/0) + addAllowedApplication(self) cattura TUTTO il
+    // traffico dell'app; senza un core che lo instrada verso l'outbound REALITY, i pacchetti finiscono
+    // nel nulla (black-hole) e l'app perde ogni connettività pur "sembrando" connessa. Meglio fallire
+    // onestamente con 'error' e lasciare l'app sulla rete diretta.
+    if (!coreAvailable()) {
+      setState("error")
+      stopTunnel()
+      return
+    }
     try {
       val builder = Builder()
         .setSession("II Anti-Censorship")
@@ -55,13 +66,36 @@ class Re4lityVpnService : VpnService() {
       //   Libbox.setup(filesDir.absolutePath, filesDir.absolutePath, cacheDir.absolutePath, false)
       //   boxService = Libbox.newService(configJson, platformInterface)
       //   boxService?.start()
-      // Finché il core non è agganciato, il tun è su ma senza outbound: lasciare 'connecting'
-      // o, in dev, 'connected' per testare il bridge JS/UI.
+      // Riportiamo 'connected' SOLO quando il core è effettivamente avviato (coreAvailable() sopra lo
+      // garantisce: senza .aar non arriviamo mai qui). Il codice che aggancia il core va completato in
+      // startCore() e verificato su device con la versione del .aar scelta.
+      startCore(configJson, pfd.fd)
       setState("connected")
     } catch (e: Exception) {
       setState("error")
       stopTunnel()
     }
+  }
+
+  /**
+   * true se il core sing-box (libbox.aar) è realmente presente nel classpath di questa build.
+   * Finché il .aar non è bundlato, ritorna false → il service non stabilisce il tun (niente
+   * black-hole) e riporta 'error'. Chi aggiunge il .aar e implementa startCore() lo abilita.
+   */
+  private fun coreAvailable(): Boolean {
+    return try {
+      Class.forName("io.nekohasekai.libbox.Libbox")
+      true
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
+  /** Avvia il core sing-box col config e il fd del tun. TODO(singbox): implementare con l'API del .aar. */
+  private fun startCore(@Suppress("UNUSED_PARAMETER") configJson: String, @Suppress("UNUSED_PARAMETER") tunFd: Int) {
+    // TODO(singbox): Libbox.setup(...); boxService = Libbox.newService(configJson, platformInterface); boxService?.start()
+    // Non raggiungibile finché coreAvailable()==false. Presente per non lasciare il path "connected" senza core.
+    throw IllegalStateException("sing-box core not wired: startCore() not implemented for the bundled .aar")
   }
 
   private fun stopTunnel() {

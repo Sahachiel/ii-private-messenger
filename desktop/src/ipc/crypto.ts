@@ -4,8 +4,13 @@ import nacl from 'tweetnacl';
 import util from 'tweetnacl-util';
 import keytar from 'keytar';
 import Store from 'electron-store';
+import axios from 'axios';
 import { initAlice, initBob, drEncrypt, drDecrypt, DRSession, DRHeader } from './doubleRatchet';
 import { kemKeygen, kemEncapsulate, kemDecapsulate } from './pqkem';
+import { getValidToken } from './api';
+
+const API_BASE = 'https://iimsg-api.oleven-group.com/api';
+const OTP_LOW = 5;
 
 // Numero di sicurezza — DEVE restare in sync con mobile/src/utils/crypto.ts (stessa versione,
 // iterazioni, canonicalizzazione), altrimenti telefono e desktop mostrerebbero numeri diversi.
@@ -31,6 +36,20 @@ function computeSafetyNumber(myIk: string, theirIk: string): string {
 const SERVICE = 'ii-private-messenger';
 const IDENTITY_ACC = 'identity';
 const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
+
+/**
+ * Messaggio firmato della SignedPreKey: SPK || KEM post-quantum (byte grezzi). Legare KEM+SPK in
+ * un'unica firma impedisce lo strip/sostituzione della chiave post-quantum (downgrade). IDENTICO al
+ * mobile (signal.ts) → interoperabilità telefono↔PC.
+ */
+function spkSignedMessage(spkPubB64: string, kemPubB64?: string): Uint8Array {
+  const spk = b64.dec(spkPubB64);
+  if (!kemPubB64) return spk;
+  const kem = b64.dec(kemPubB64);
+  const out = new Uint8Array(spk.length + kem.length);
+  out.set(spk, 0); out.set(kem, spk.length);
+  return out;
+}
 
 interface LocalIdentity { pub: string; priv: string; regId: number }
 interface SPK { pub: string; sec: string; keyId: number }
@@ -105,15 +124,32 @@ function mintOneTimePreKeys(n: number): Array<{ keyId: number; publicKey: string
   return out;
 }
 
+/** Se le OTP disponibili scendono sotto la soglia, rigenera e ricarica i pubblici sul server (come mobile). */
+async function replenishIfLow(): Promise<void> {
+  const remaining = Object.keys(drStore.get('otpSecrets') ?? {}).length;
+  if (remaining >= OTP_LOW) return;
+  try {
+    const fresh = mintOneTimePreKeys(OTP_BATCH);
+    const t = await getValidToken();
+    if (!t) return;
+    await axios.post(`${API_BASE}/users/me/prekeys/replenish`,
+      { one_time_prekeys: fresh.map((k) => ({ key_id: k.keyId, public_key: k.publicKey })) },
+      { headers: { Authorization: `Bearer ${t}` } });
+  } catch { /* riproverà al prossimo consumo */ }
+}
+
 export function registerCryptoIpc(ipc: IpcMain): void {
   ipc.handle('crypto.generateIdentity', async () => {
     const id = await getIdentity();
     const spk = ensureSPK();
-    const signature = nacl.sign.detached(b64.dec(spk.pub), signKeyFrom(id.sec).secretKey);
+    const kem = await ensureKem();
+    const sk = signKeyFrom(id.sec);
+    // ANTI-DOWNGRADE PQ: firmiamo SPK+KEM insieme e pubblichiamo la verify-key Ed25519.
+    const signature = nacl.sign.detached(spkSignedMessage(spk.pub, kem.pub), sk.secretKey);
     return {
       identityPublicKey: b64.enc(id.pub),
-      // kemPublicKey (ML-KEM post-quantum) viaggia dentro il blob signed_prekey: nessuna modifica di schema al backend.
-      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: (await ensureKem()).pub },
+      // kemPublicKey (ML-KEM) e signPublicKey (verify-key) viaggiano nel blob signed_prekey: nessuna modifica schema backend.
+      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: kem.pub, signPublicKey: b64.enc(sk.publicKey) },
       registrationId: id.regId,
       // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano su questo dispositivo).
       oneTimePreKeys: mintOneTimePreKeys(OTP_BATCH),
@@ -137,8 +173,22 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     if (!ik || !spkPub) throw new Error('bundle incompleto: servono identityPublicKey + signedPreKey.publicKey');
     // Il backend consegna UNA one-time prekey non usata: la conserviamo per fonderla nell'handshake.
     const otpRaw = bundle?.oneTimePreKey;
-    const otp = otpRaw ? { keyId: otpRaw.keyId ?? otpRaw.key_id, pub: otpRaw.publicKey ?? otpRaw.public_key } : undefined;
-    const kemPub = bundle?.signedPreKey?.kemPublicKey ?? bundle?.signedPreKey?.kem_public_key;
+    const otpKeyId = otpRaw ? (otpRaw.keyId ?? otpRaw.key_id) : undefined;
+    // Scarta il placeholder legacy keyId===1 (senza segreto lato destinatario) → eviterebbe la
+    // divergenza dell'handshake ibrido. Vedi mobile signal.ts.
+    const otp = otpRaw && otpKeyId !== 1 ? { keyId: otpKeyId, pub: otpRaw.publicKey ?? otpRaw.public_key } : undefined;
+    let kemPub = bundle?.signedPreKey?.kemPublicKey ?? bundle?.signedPreKey?.kem_public_key;
+    // ANTI-DOWNGRADE PQ (come mobile): la KEM deve essere firmata (spk||kem) dalla verify-key del
+    // bundle; se firma assente o non valida → scartiamo la KEM e usiamo l'handshake classico.
+    if (kemPub) {
+      const sig = bundle?.signedPreKey?.signature;
+      const signPub = bundle?.signedPreKey?.signPublicKey ?? bundle?.signedPreKey?.sign_public_key;
+      let ok = false;
+      if (sig && signPub) {
+        try { ok = nacl.sign.detached.verify(spkSignedMessage(spkPub, kemPub), b64.dec(sig), b64.dec(signPub)); } catch { ok = false; }
+      }
+      if (!ok) kemPub = undefined;
+    }
     const p = getPending();
     p[peer] = { ik, spk: spkPub, otp: otp && otp.keyId != null && otp.pub ? otp : undefined, kemPub };
     savePending(p);
@@ -178,7 +228,7 @@ export function registerCryptoIpc(ipc: IpcMain): void {
       if (otpId != null) {
         const secrets = drStore.get('otpSecrets') ?? {};
         otpSec = secrets[String(otpId)];
-        if (otpSec) { delete secrets[String(otpId)]; drStore.set('otpSecrets', secrets); }
+        if (otpSec) { delete secrets[String(otpId)]; drStore.set('otpSecrets', secrets); void replenishIfLow(); }
       }
       // Post-quantum: decapsula il ciphertext ML-KEM con la nostra chiave KEM.
       let pqSecret: string | undefined;

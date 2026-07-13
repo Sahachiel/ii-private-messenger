@@ -19,14 +19,16 @@ export interface Contact extends User {
 
 export interface KeyBundle {
   identityPublicKey: string;
-  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string };
+  // signature = Ed25519 su (spk.pub || kemPublicKey) → lega la chiave post-quantum alla SPK (anti-downgrade).
+  // signPublicKey = verify-key Ed25519, viaggia nel blob (nessuna modifica schema backend).
+  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string; signPublicKey?: string };
   registrationId: number;
   oneTimePreKeys: { keyId: number; publicKey: string }[];
 }
 
 export interface RemoteKeyBundle {
   identityPublicKey: string;
-  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string };
+  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string; signPublicKey?: string };
   oneTimePreKey?: { keyId: number; publicKey: string };
   registrationId: number;
 }

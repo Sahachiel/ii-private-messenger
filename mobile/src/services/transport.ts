@@ -22,6 +22,8 @@ const HOSTILE_COUNTRIES = new Set(['RU', 'IR', 'CN', 'BY', 'TM', 'KP', 'SY', 'CU
 
 const KEY_MANUAL = 'transport.manualEnabled';
 const KEY_LAST_CFG = 'transport.lastProxyConfig';
+// Oltre questo tempo senza un 'connected' consideriamo il tunnel fallito e proseguiamo in diretta.
+const START_TIMEOUT_MS = 15000;
 
 export type TransportState = 'idle' | 'connecting' | 'connected' | 'error';
 type StateListener = (s: TransportState) => void;
@@ -57,21 +59,42 @@ class TransportService {
     try { return !!(await Native.prepare()); } catch { return false; }
   }
 
-  /** Avvia il tunnel per-app verso il proxy REALITY. Persiste sempre la config. */
+  /**
+   * Avvia il tunnel per-app verso il proxy REALITY. Persiste sempre la config.
+   * ONESTÀ: NON ritorna true finché il tunnel non è realmente 'connected'. Se il core nativo
+   * fallisce (es. .aar non linkato → 'error') o non risponde entro il timeout, ritorna false così
+   * il chiamante (login) prosegue in DIRETTA invece di credersi protetto e restare senza rete.
+   */
   async start(cfg: ProxyConfig): Promise<boolean> {
     this.persistLastConfig(cfg);
     if (!this.isAvailable()) return false;
     this.setState('connecting');
+    const settled = this.waitForSettled(START_TIMEOUT_MS);
     try {
       await Native.start({
         server: cfg.server, port: cfg.port, uuid: cfg.uuid,
         pbk: cfg.pbk, sid: cfg.sid, sni: cfg.sni, flow: cfg.flow, fp: cfg.fp,
       });
-      return true;
     } catch {
       this.setState('error');
       return false;
     }
+    // Il tun si stabilisce/instrada in modo asincrono: il modulo nativo emette 'connected' o 'error'.
+    return (await settled) === 'connected';
+  }
+
+  /** Attende la prima transizione a 'connected'/'error'; su timeout considera fallito (false). */
+  private waitForSettled(timeoutMs: number): Promise<TransportState> {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (s: TransportState): void => {
+        if (done) return; done = true;
+        clearTimeout(timer); off();
+        resolve(s);
+      };
+      const off = this.onState((s) => { if (s === 'connected' || s === 'error') finish(s); });
+      const timer = setTimeout(() => finish(this.state === 'connected' ? 'connected' : 'error'), timeoutMs);
+    });
   }
 
   async stop(): Promise<void> {

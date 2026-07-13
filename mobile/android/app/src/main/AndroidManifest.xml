@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
       android:name=".MainApplication"
@@ -40,5 +41,10 @@
         </intent-filter>
       </activity>
       <service android:name=".transport.Re4lityVpnService" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse" android:exported="false"><intent-filter><action android:name="android.net.VpnService"/></intent-filter></service>
+    <!-- Android 14: il foreground service di notifee (dichiarato senza tipo nel core AAR) ha bisogno di
+         un foregroundServiceType, altrimenti startForeground lancia MissingForegroundServiceTypeException.
+         'dataSync' = mantenimento della connessione WebSocket al relay (push sovrana). Merge pulito: aggiunge
+         solo l'attributo (notifee dichiara lo stesso service con exported=false, nessun conflitto). -->
+    <service android:name="app.notifee.core.ForegroundService" android:foregroundServiceType="dataSync" android:exported="false"/>
   </application>
 </manifest>

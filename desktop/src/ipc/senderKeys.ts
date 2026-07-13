@@ -20,6 +20,21 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   out.set(a, 0); out.set(b, a.length);
   return out;
 }
+// PADDING METADATI anche per i messaggi di gruppo — IDENTICO a mobile/senderKeys.ts.
+const PAD_BUCKETS = [64, 256, 1024, 4096, 16384];
+function padTo(pt: Uint8Array): Uint8Array {
+  const need = pt.length + 1;
+  const target = PAD_BUCKETS.find((b) => need <= b) ?? Math.ceil(need / 16384) * 16384;
+  const out = new Uint8Array(target);
+  out.set(pt, 0); out[pt.length] = 0x80;
+  return out;
+}
+function unpad(p: Uint8Array): Uint8Array {
+  let i = p.length - 1;
+  while (i >= 0 && p[i] === 0x00) i--;
+  if (i < 0 || p[i] !== 0x80) return p;
+  return p.slice(0, i);
+}
 function kdf(label: Uint8Array, key: Uint8Array): Uint8Array {
   return nacl.hash(concat(label, key)).slice(0, 32);
 }
@@ -38,7 +53,8 @@ export interface SenderKeyDistribution { sid: string; e: number; ck: string; i: 
 
 interface OwnChain { ck: string; i: number; spk: string; ssk: string }
 interface PeerChain { ck: string; i: number; spk: string; skipped: Record<number, string> }
-interface SKState { own: Record<string, OwnChain>; peer: Record<string, PeerChain>; senderMap?: Record<string, string> }
+interface SKState { own: Record<string, OwnChain>; peer: Record<string, PeerChain>; senderMap?: Record<string, string>; v?: number }
+const SK_VERSION = 2; // v2 = sealed sender (sid opaco)
 
 const skStore = new Store<{ state?: SKState }>({ name: 'sender-keys' });
 const cfg = new Store<{ userId?: string }>(); // default 'config', condivide userId con api.ts
@@ -47,7 +63,14 @@ class SenderKeyManager {
   private store: SKState = this.load();
 
   private load(): SKState {
-    return skStore.get('state') ?? { own: {}, peer: {} };
+    const s = skStore.get('state') ?? { own: {}, peer: {}, senderMap: {} };
+    // MIGRAZIONE opaque-sid (vedi mobile): azzera peer + mappa così parte una distribuzione fresca.
+    if (s.v !== SK_VERSION) {
+      const migrated: SKState = { own: s.own ?? {}, peer: {}, senderMap: {}, v: SK_VERSION };
+      try { skStore.set('state', migrated); } catch { /* ignore */ }
+      return migrated;
+    }
+    return s;
   }
   private save(): void {
     try { skStore.set('state', this.store); } catch { /* ignore */ }
@@ -101,7 +124,7 @@ class SenderKeyManager {
     const iter = own.i;
     const msgKey = kdf(LBL_MSG, chain);
     const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-    const ct = nacl.secretbox(util.decodeUTF8(plaintext), nonce, msgKey);
+    const ct = nacl.secretbox(padTo(util.decodeUTF8(plaintext)), nonce, msgKey);
     const sig = nacl.sign.detached(sigMessage(gid, epoch, iter, nonce, ct), b64.dec(own.ssk));
     chain = kdf(LBL_CHAIN, chain);
     own.ck = b64.enc(chain);
@@ -145,7 +168,7 @@ class SenderKeyManager {
     const plain = nacl.secretbox.open(ct, nonce, msgKey);
     if (!plain) throw new Error('decrypt_failed');
     this.save();
-    return util.encodeUTF8(plain);
+    return util.encodeUTF8(unpad(plain));
   }
 
   rotateEpoch(gid: string, newEpoch: number): void {

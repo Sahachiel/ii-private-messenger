@@ -172,7 +172,7 @@ export function registerApiIpc(ipc: IpcMain): void {
     const spk = typeof w.signed_prekey === 'string' ? JSON.parse(w.signed_prekey) : w.signed_prekey;
     return {
       identityPublicKey: w.identity_public_key,
-      signedPreKey: { keyId: spk.keyId ?? spk.key_id, publicKey: spk.publicKey ?? spk.public_key, signature: spk.signature, kemPublicKey: spk.kemPublicKey },
+      signedPreKey: { keyId: spk.keyId ?? spk.key_id, publicKey: spk.publicKey ?? spk.public_key, signature: spk.signature, kemPublicKey: spk.kemPublicKey, signPublicKey: spk.signPublicKey },
       oneTimePreKey: w.one_time_prekey ? { keyId: w.one_time_prekey.key_id, publicKey: w.one_time_prekey.public_key } : undefined,
       registrationId: w.registration_id,
     };

@@ -52,6 +52,9 @@ export async function startBackgroundConnection(): Promise<void> {
       android: {
         channelId: 'service',
         asForegroundService: true,
+        // Android 14 (targetSdk 34) ESIGE un foregroundServiceType per startForeground: notifee 7.8.2 non
+        // espone il campo lato JS, quindi il tipo ('dataSync' = connessione WebSocket) è dichiarato sul
+        // service nel AndroidManifest (override di app.notifee.core.ForegroundService) + permesso dedicato.
         ongoing: true,
         smallIcon: 'ic_launcher',
         pressAction: { id: 'default' },

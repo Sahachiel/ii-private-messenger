@@ -25,6 +25,7 @@ import { appKv } from './keychain';
 
 const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
 const KV_KEY = 'senderkeys.v1';
+const SK_VERSION = 2;                  // v2 = sealed sender (sid OPACO invece dell'uid)
 const MAX_SKIP = 256; // tolleranza messaggi fuori ordine / persi per chain
 
 const LBL_CHAIN = Uint8Array.of(0x02);
@@ -34,6 +35,22 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   const out = new Uint8Array(a.length + b.length);
   out.set(a, 0); out.set(b, a.length);
   return out;
+}
+// PADDING METADATI (S2-C2) anche per i messaggi di GRUPPO: taglia fissa a bucket (ISO/IEC 7816-4)
+// così la lunghezza del testo non trapela. IDENTICO a doubleRatchet.ts e al desktop.
+const PAD_BUCKETS = [64, 256, 1024, 4096, 16384];
+function padTo(pt: Uint8Array): Uint8Array {
+  const need = pt.length + 1;
+  const target = PAD_BUCKETS.find((b) => need <= b) ?? Math.ceil(need / 16384) * 16384;
+  const out = new Uint8Array(target);
+  out.set(pt, 0); out[pt.length] = 0x80;
+  return out;
+}
+function unpad(p: Uint8Array): Uint8Array {
+  let i = p.length - 1;
+  while (i >= 0 && p[i] === 0x00) i--;
+  if (i < 0 || p[i] !== 0x80) return p;
+  return p.slice(0, i);
 }
 /** Ratchet/KDF: 32 byte da SHA-512(label || key). */
 function kdf(label: Uint8Array, key: Uint8Array): Uint8Array {
@@ -60,6 +77,7 @@ interface Store {
   own: Record<string, OwnChain>;        // key: gid:epoch
   peer: Record<string, PeerChain>;      // key: gid:epoch:opaqueSid
   senderMap?: Record<string, string>;   // opaqueSid → uid reale (solo lato client; MAI sul server)
+  v?: number;                           // versione schema (per migrazione opaque-sid)
 }
 
 class SenderKeyManager {
@@ -67,8 +85,17 @@ class SenderKeyManager {
 
   private load(): Store {
     const raw = appKv.getString(KV_KEY);
-    if (!raw) return { own: {}, peer: {} };
-    try { return JSON.parse(raw) as Store; } catch { return { own: {}, peer: {} }; }
+    let s: Store;
+    try { s = raw ? (JSON.parse(raw) as Store) : { own: {}, peer: {}, senderMap: {} }; } catch { s = { own: {}, peer: {}, senderMap: {} }; }
+    // MIGRAZIONE a opaque-sid: le vecchie peer-chain sono indicizzate per uid → non combaciano più
+    // col sid opaco. Azzeriamo peer + mappa + i marker di distribuzione (`senderkeys.dist.*`) così
+    // parte una distribuzione fresca sotto il nuovo sid. Le proprie chain (own) restano valide.
+    if (s.v !== SK_VERSION) {
+      s = { own: s.own ?? {}, peer: {}, senderMap: {}, v: SK_VERSION };
+      try { appKv.getAllKeys().filter((k) => k.startsWith('senderkeys.dist.')).forEach((k) => appKv.delete(k)); } catch { /* ignore */ }
+      try { appKv.set(KV_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    }
+    return s;
   }
   private save(): void {
     try { appKv.set(KV_KEY, JSON.stringify(this.store)); } catch { /* ignore */ }
@@ -135,7 +162,7 @@ class SenderKeyManager {
     const iter = own.i;
     const msgKey = kdf(LBL_MSG, chain);
     const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-    const ct = nacl.secretbox(util.decodeUTF8(plaintext), nonce, msgKey);
+    const ct = nacl.secretbox(padTo(util.decodeUTF8(plaintext)), nonce, msgKey);
     const sig = nacl.sign.detached(sigMessage(gid, epoch, iter, nonce, ct), b64.dec(own.ssk));
     // avanza il ratchet
     chain = kdf(LBL_CHAIN, chain);
@@ -182,7 +209,7 @@ class SenderKeyManager {
     const plain = nacl.secretbox.open(ct, nonce, msgKey);
     if (!plain) throw new Error('decrypt_failed');
     this.save();
-    return util.encodeUTF8(plain);
+    return util.encodeUTF8(unpad(plain));
   }
 
   /** Rotazione epoch: scarta tutte le chain (own+peer) del gruppo con epoch < newEpoch. */

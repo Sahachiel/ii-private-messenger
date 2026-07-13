@@ -39,6 +39,21 @@ type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: stri
 interface LocalIdentity { publicKey: Uint8Array; secretKey: Uint8Array; registrationId: number }
 interface SPK { pub: string; sec: string; keyId: number }
 
+/**
+ * Messaggio firmato della SignedPreKey: SPK concatenata alla chiave KEM post-quantum (byte grezzi).
+ * Legare KEM+SPK in un'unica firma impedisce a un MITM/server di STRIPPARE o SOSTITUIRE la chiave
+ * post-quantum per forzare un handshake solo-classico. Se non c'è KEM, si firma la sola SPK.
+ * DEVE restare identico tra mobile e desktop.
+ */
+function spkSignedMessage(spkPubB64: string, kemPubB64?: string): Uint8Array {
+  const spk = b64.dec(spkPubB64);
+  if (!kemPubB64) return spk;
+  const kem = b64.dec(kemPubB64);
+  const out = new Uint8Array(spk.length + kem.length);
+  out.set(spk, 0); out.set(kem, spk.length);
+  return out;
+}
+
 function loadMap<T>(key: string): Record<string, T> {
   const raw = appKv.getString(key);
   if (!raw) return {};
@@ -111,12 +126,14 @@ export class SignalService {
     await this.initialize();
     const spk = this.ensureSPK();
     const kem = this.ensureKem();
-    const signature = nacl.sign.detached(b64.dec(spk.pub), this.signKey().secretKey);
+    const sk = this.signKey();
+    // ANTI-DOWNGRADE PQ: firmiamo SPK+KEM insieme (non la sola SPK) e pubblichiamo la verify-key.
+    const signature = nacl.sign.detached(spkSignedMessage(spk.pub, kem.pub), sk.secretKey);
     return {
       identityPublicKey: b64.enc(this.identity!.publicKey),
-      // La chiave KEM post-quantum (kemPublicKey) viaggia dentro il blob signed_prekey: nessuna
-      // modifica di schema al backend, che lo conserva e lo restituisce verbatim.
-      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: kem.pub },
+      // La chiave KEM post-quantum (kemPublicKey) e la verify-key Ed25519 (signPublicKey) viaggiano
+      // dentro il blob signed_prekey: nessuna modifica di schema al backend, che lo conserva verbatim.
+      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: kem.pub, signPublicKey: b64.enc(sk.publicKey) },
       registrationId: this.identity!.registrationId,
       // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano sul dispositivo).
       oneTimePreKeys: this.mintOneTimePreKeys(OTP_BATCH),
@@ -141,8 +158,27 @@ export class SignalService {
     const pending = loadMap<PendingBundle>(KV_PENDING);
     // Il backend consegna UNA one-time prekey non usata (e la marca usata): la conserviamo per
     // fonderla nell'handshake al primo encrypt.
-    const otp = bundle.oneTimePreKey ? { keyId: bundle.oneTimePreKey.keyId, pub: bundle.oneTimePreKey.publicKey } : undefined;
-    const kemPub = (bundle.signedPreKey as { kemPublicKey?: string }).kemPublicKey;
+    // keyId===1 è il PLACEHOLDER legacy (copia della SPK, senza segreto sul destinatario): fonderlo
+    // farebbe divergere l'handshake (l'initiator hasha, il responder no) → sessione morta. Scartalo.
+    const otp = bundle.oneTimePreKey && bundle.oneTimePreKey.keyId !== 1
+      ? { keyId: bundle.oneTimePreKey.keyId, pub: bundle.oneTimePreKey.publicKey } : undefined;
+    const spkBlob = bundle.signedPreKey as { publicKey: string; signature?: string; kemPublicKey?: string; signPublicKey?: string };
+    let kemPub = spkBlob.kemPublicKey;
+    // ANTI-DOWNGRADE PQ: se arriva una chiave KEM deve essere firmata (su spk||kem) dalla verify-key
+    // del bundle. Se la firma manca o non verifica, qualcuno l'ha strippata/sostituita → SCARTIAMO la
+    // KEM e proseguiamo con l'handshake classico, invece di fondere una chiave post-quantum falsa.
+    if (kemPub) {
+      const ok = !!spkBlob.signPublicKey && !!spkBlob.signature && (() => {
+        try {
+          return nacl.sign.detached.verify(
+            spkSignedMessage(spkBlob.publicKey, kemPub),
+            b64.dec(spkBlob.signature!),
+            b64.dec(spkBlob.signPublicKey!),
+          );
+        } catch { return false; }
+      })();
+      if (!ok) kemPub = undefined;
+    }
     pending[remoteUserId] = { ik: bundle.identityPublicKey, spk: bundle.signedPreKey.publicKey, otp, kemPub };
     saveMap(KV_PENDING, pending);
   }

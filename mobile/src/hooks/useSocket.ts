@@ -47,10 +47,13 @@ export function useSocket(): void {
           break;
         }
         case 'delivery_receipt': {
-          // Il relay conferma al mittente la consegna → spunta ✓✓ "consegnato".
+          // Il relay conferma al mittente la consegna → spunta ✓✓ "consegnato". Nei gruppi il
+          // messageId inviato ha il suffisso `-<peer>`: lo strippo per combaciare con l'id locale base.
           const cid = ev.gid ?? ev.conversationId;
-          if (ev.messageId && cid) {
-            dispatch(updateMessageStatus({ conversationId: cid, messageId: ev.messageId, status: 'delivered' }));
+          let mid = ev.messageId;
+          if (mid && ev.from && mid.endsWith('-' + ev.from)) mid = mid.slice(0, -(ev.from.length + 1));
+          if (mid && cid) {
+            dispatch(updateMessageStatus({ conversationId: cid, messageId: mid, status: 'delivered' }));
           }
           break;
         }
