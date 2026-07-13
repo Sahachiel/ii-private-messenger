@@ -14,8 +14,12 @@ export async function detectMaliciousApps(): Promise<MtdEvent[]> {
 
   let packages: string[] = [];
   try {
+    // Modulo nativo DeviceSecurity (reale, via PackageManager) come prima scelta.
+    const DS: any = (NativeModules as any).DeviceSecurity;
     const InstalledApps: any = (NativeModules as any).InstalledApps || (NativeModules as any).RNInstalledApps;
-    if (InstalledApps && typeof InstalledApps.getInstalledApps === 'function') {
+    if (DS && typeof DS.getInstalledPackages === 'function') {
+      packages = (await DS.getInstalledPackages()).filter(Boolean);
+    } else if (InstalledApps && typeof InstalledApps.getInstalledApps === 'function') {
       const apps = await InstalledApps.getInstalledApps();
       packages = apps.map((a: any) => a.packageName).filter(Boolean);
     } else if (typeof (DeviceInfo as any).getInstalledApplications === 'function') {

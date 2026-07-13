@@ -35,7 +35,8 @@ export const ShieldSettingsScreen: React.FC = () => {
         <Text style={styles.title}>SHIELD SETTINGS</Text>
 
         <Text style={styles.section}>DETECTORS</Text>
-        {(Object.keys(LABELS) as ThreatCategory[]).map((cat) => (
+        {/* Solo i detector con un controllo reale nel motore (memory_tamper non ha detector). */}
+        {(Object.keys(LABELS) as ThreatCategory[]).filter((c) => c !== 'memory_tamper').map((cat) => (
           <Row key={cat} label={LABELS[cat]} value={policy.enabled[cat]} onChange={() => toggleCat(cat)} />
         ))}
 
@@ -43,9 +44,6 @@ export const ShieldSettingsScreen: React.FC = () => {
         <Row label="Block sending when compromised" value={policy.blockSendOnCompromise} onChange={() => toggleFlag('blockSendOnCompromise')} />
         <Row label="Scan chat links for phishing" value={policy.phishingLinkScan} onChange={() => toggleFlag('phishingLinkScan')} />
         <Row label="Auto-wipe keys on compromise" value={policy.autoWipeOnCompromise} onChange={() => toggleFlag('autoWipeOnCompromise')} warning />
-
-        <Text style={styles.section}>REPORTING</Text>
-        <Row label="Send encrypted reports to Oleven admin" value={policy.orgReporting} onChange={() => toggleFlag('orgReporting')} />
       </ScrollView>
     </SafeAreaView>
   );

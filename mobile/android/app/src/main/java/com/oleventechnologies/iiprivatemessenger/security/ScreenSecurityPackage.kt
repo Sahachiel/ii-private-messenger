@@ -10,7 +10,7 @@ import com.facebook.react.uimanager.ViewManager
  */
 class ScreenSecurityPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-    listOf(ScreenSecurityModule(reactContext), AudioRouteModule(reactContext))
+    listOf(ScreenSecurityModule(reactContext), AudioRouteModule(reactContext), DeviceSecurityModule(reactContext))
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
     emptyList()

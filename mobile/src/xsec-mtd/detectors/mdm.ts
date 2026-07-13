@@ -9,19 +9,25 @@ import { MtdEvent } from '../types';
  */
 export async function detectMdm(): Promise<MtdEvent[]> {
   const events: MtdEvent[] = [];
+  const DS: any = (NativeModules as any).DeviceSecurity;
   const MDM: any = (NativeModules as any).MDMInspector;
-  if (!MDM || typeof MDM.list !== 'function') return events;
-  try {
-    const profiles: string[] = await MDM.list();
-    const suspicious = profiles.filter((p) => !/oleven|iimsg/i.test(p));
-    if (suspicious.length > 0) {
-      events.push({
-        id: `mdm-${Date.now()}`, ts: Date.now(),
-        category: 'mdm_profile', severity: 'warning',
-        title: `${suspicious.length} unauthorized ${Platform.OS === 'ios' ? 'configuration profile' : 'device admin'}(s)`,
-        detail: { profiles: suspicious },
-      });
-    }
-  } catch {}
+  let profiles: string[] | null = null;
+  // Reale su Android: device admin attivi (DevicePolicyManager) via DeviceSecurity.
+  if (DS && typeof DS.listDeviceAdmins === 'function') {
+    try { profiles = await DS.listDeviceAdmins(); } catch { profiles = null; }
+  } else if (MDM && typeof MDM.list === 'function') {
+    try { profiles = await MDM.list(); } catch { profiles = null; }
+  }
+  if (!profiles) return events; // modulo assente → non eseguito (la UI mostra N/A, non "OK")
+  // Un dispositivo personale non dovrebbe avere device admin: qualunque admin non nostro è sospetto.
+  const suspicious = profiles.filter((p) => !/oleven|iimsg/i.test(p));
+  if (suspicious.length > 0) {
+    events.push({
+      id: `mdm-${Date.now()}`, ts: Date.now(),
+      category: 'mdm_profile', severity: 'warning',
+      title: `${suspicious.length} ${Platform.OS === 'ios' ? 'profilo di configurazione' : 'device admin'} non autorizzat${suspicious.length === 1 ? 'o' : 'i'}`,
+      detail: { profiles: suspicious },
+    });
+  }
   return events;
 }

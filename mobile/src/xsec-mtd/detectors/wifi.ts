@@ -11,17 +11,31 @@ const KNOWN_KARMA_PATTERNS = [/^Free[\s_-]?Wi?Fi/i, /^Airport[\s_-]?Free/i, /^xf
  */
 export async function detectWifi(): Promise<MtdEvent[]> {
   const events: MtdEvent[] = [];
-  // Try react-native-wifi-reborn if present
+  const DS: any = (NativeModules as any).DeviceSecurity;
   const Wifi: any = (NativeModules as any).WifiManager || (NativeModules as any).RNCWifi;
-  if (!Wifi || typeof Wifi.getCurrentWifiSSID !== 'function') {
-    // No perms / not installed → skip silently
-    return events;
+  let ssid = '';
+  let bssid = '';
+  let secType = '';
+  // Reale su Android: WifiManager via DeviceSecurity. SSID/BSSID possono essere mascherati senza
+  // permesso posizione (il sistema ritorna "<unknown ssid>") → il detector controlla solo ciò che vede.
+  if (DS && typeof DS.getWifiInfo === 'function') {
+    try {
+      const info = await DS.getWifiInfo();
+      ssid = String(info?.ssid ?? '').replace(/^"|"$/g, '');
+      if (/unknown ssid/i.test(ssid)) ssid = '';
+      bssid = info?.bssid && info.bssid !== '02:00:00:00:00:00' ? info.bssid : '';
+    } catch { return events; }
+  } else if (Wifi && typeof Wifi.getCurrentWifiSSID === 'function') {
+    try {
+      ssid = await Wifi.getCurrentWifiSSID();
+      bssid = typeof Wifi.getBSSID === 'function' ? await Wifi.getBSSID() : '';
+      secType = typeof Wifi.getCurrentCapabilities === 'function' ? await Wifi.getCurrentCapabilities() : '';
+    } catch { return events; }
+  } else {
+    return events; // nessun modulo → non eseguito (la UI mostra N/A, non "OK")
   }
   try {
-    const ssid: string = await Wifi.getCurrentWifiSSID();
-    const bssid: string = typeof Wifi.getBSSID === 'function' ? await Wifi.getBSSID() : '';
-    const secType: string = typeof Wifi.getCurrentCapabilities === 'function' ? await Wifi.getCurrentCapabilities() : '';
-    const isOpen = !secType || /WPA|WEP|WPA2|WPA3/i.test(secType) === false;
+    const isOpen = !!secType && /WPA|WEP|WPA2|WPA3/i.test(secType) === false;
 
     if (isOpen && ssid) {
       events.push({

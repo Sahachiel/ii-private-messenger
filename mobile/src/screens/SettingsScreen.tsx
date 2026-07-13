@@ -116,7 +116,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         </Section>
 
         <Section title="Sicurezza">
-          <Row label="Cifratura" value="Signal Protocol (X3DH)" />
+          <Row label="Cifratura" value="Double Ratchet · X25519 (X3DH)" />
           <Row label="Impronta identità" value={fingerprint} mono />
           <SwitchRow label="Sicurezza schermo" value={screenProtect} onChange={toggleScreenProtect} />
           <SwitchRow label={biometry ? `Blocco con ${biometry}` : 'Blocco app'} value={lockEnabled} onChange={toggleAppLock} />

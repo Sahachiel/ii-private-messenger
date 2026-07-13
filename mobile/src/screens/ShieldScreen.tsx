@@ -8,6 +8,7 @@ import { KC, appKv, getSecureKv } from '@services/keychain';
 import { theme } from '@utils/theme';
 import { ShieldIcon, ScanIcon } from '@components/Icons';
 import { ThreatCategory } from '@/xsec-mtd/types';
+import { detectorAvailable } from '@/xsec-mtd/detectors/availability';
 import dayjs from 'dayjs';
 
 const STATE_META: Record<'secure'|'warning'|'compromised', { color: string; label: string; caption: string }> = {
@@ -119,21 +120,26 @@ export const ShieldScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <View style={styles.detectorList}>
           <Text style={styles.sectionHead}>DETECTORS</Text>
           {planCategories.map((cat) => {
+            const avail = detectorAvailable(cat);
             const done = progress?.completed.includes(cat);
             const current = scanning && progress?.detector === cat;
             const hasEvent = events.some((e) => e.category === cat && !e.ack);
+            // Onestà: se il controllo non può girare (modulo nativo assente / iOS) mostra N/A,
+            // MAI un "OK" che significherebbe "verificato e pulito" senza aver verificato nulla.
             return (
               <View key={cat} style={styles.detectorRow}>
                 <View style={[styles.detectorDot,
                   current ? { backgroundColor: theme.accentAlt } :
+                  !avail  ? { backgroundColor: theme.border } :
                   done    ? { backgroundColor: hasEvent ? theme.warning : theme.success } :
                             { backgroundColor: theme.border }]} />
                 <Text style={styles.detectorName}>{CATEGORY_LABEL[cat]}</Text>
                 <Text style={[styles.detectorStatus,
                   current ? { color: theme.accentAlt } :
+                  !avail  ? { color: theme.textMute } :
                   done    ? { color: hasEvent ? theme.warning : theme.success } :
                             { color: theme.textMute }]}>
-                  {current ? '…' : done ? (hasEvent ? 'WARN' : 'OK') : '—'}
+                  {current ? '…' : !avail ? 'N/A' : done ? (hasEvent ? 'WARN' : 'OK') : '—'}
                 </Text>
               </View>
             );

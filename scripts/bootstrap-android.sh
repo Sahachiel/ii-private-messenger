@@ -135,6 +135,12 @@ if ! grep -q "BIND_VPN_SERVICE" "$MAN"; then
   echo "  ~ AndroidManifest: permessi + Re4lityVpnService"
 fi
 
+# 8a) Permesso per l'enumerazione pacchetti (detector app-blocklist reale, Android 11+)
+if ! grep -q "QUERY_ALL_PACKAGES" "$MAN"; then
+  sed -i 's|<uses-permission android:name="android.permission.INTERNET"/>|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>|' "$MAN" || true
+  echo "  ~ AndroidManifest: QUERY_ALL_PACKAGES"
+fi
+
 # 8b) Deep link iimsg://join?t=<token> — intent-filter VIEW sul MainActivity (link invito reale)
 if ! grep -q 'android:scheme="iimsg"' "$MAN"; then
   sed -i 's|<category android:name="android.intent.category.LAUNCHER" />|<category android:name="android.intent.category.LAUNCHER" />\n        </intent-filter>\n        <intent-filter>\n            <action android:name="android.intent.action.VIEW" />\n            <category android:name="android.intent.category.DEFAULT" />\n            <category android:name="android.intent.category.BROWSABLE" />\n            <data android:scheme="iimsg" />|' "$MAN" || true
