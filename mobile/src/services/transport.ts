@@ -16,6 +16,10 @@ import { ProxyConfig, Region } from '../types';
 
 const Native: any = (NativeModules as any).AntiCensorship;
 
+// Paesi con censura/DPI pesante dove il transport REALITY va attivato DI DEFAULT (senza che
+// l'utente debba saperlo): Russia, Iran, Cina, Bielorussia, Turkmenistan, Corea del Nord, ecc.
+const HOSTILE_COUNTRIES = new Set(['RU', 'IR', 'CN', 'BY', 'TM', 'KP', 'SY', 'CU', 'UZ']);
+
 const KEY_MANUAL = 'transport.manualEnabled';
 const KEY_LAST_CFG = 'transport.lastProxyConfig';
 
@@ -92,6 +96,9 @@ class TransportService {
   shouldAutoEnable(region: Region | null, directFailed = false): boolean {
     if (this.getManualEnabled()) return true;
     if (region === 'ru') return true;
+    // Auto-default in paesi censurati: l'utente non deve sapere che serve — REALITY parte da solo.
+    const cc = (appKv.getString('auth.countryCode') || '').toUpperCase();
+    if (cc && HOSTILE_COUNTRIES.has(cc)) return true;
     if (directFailed) return true;
     return false;
   }
