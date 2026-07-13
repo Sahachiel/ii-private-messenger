@@ -1,6 +1,6 @@
 {
   "name": "ii-private-messenger-desktop",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "II Private Messenger — desktop client (Windows/macOS/Linux)",
   "main": "dist/main.js",
   "private": true,
