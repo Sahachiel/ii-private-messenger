@@ -359,13 +359,18 @@ async function statusTransition(gid: string, targetId: string, newStatus: string
  * verifica con la chiave pubblica del backend e droppa i messaggi se non valida o epoch
  * scaduto — senza dover fidarsi solo di una lista in cache.
  */
-export async function signMembershipCapability(gid: string, userId: string, ttlSeconds = 3600): Promise<{ cap: string; epoch: number } | null> {
+export async function signMembershipCapability(gid: string, userId: string, ttlSeconds = 3600): Promise<{ cap: string; scap: string; epoch: number } | null> {
   const ce = await pool.query(`SELECT epoch FROM conversations WHERE id=$1 AND deleted_at IS NULL`, [gid]);
   if (ce.rowCount === 0) return null;
   const epoch = (ce.rows[0] as { epoch: number }).epoch;
   if (!(await isMember(gid, userId))) return null;
-  const cap = signToken({ t: 'cap', gid, uid: userId, epoch, exp: nowSec() + ttlSeconds });
-  return { cap, epoch };
+  const exp = nowSec() + ttlSeconds;
+  // cap: legata all'uid (compat). scap: SEALED SENDER — token ANONIMO (solo gid+epoch, NIENTE uid):
+  // prova "il richiedente è un membro all'epoch E" senza rivelare QUALE membro. Il relay lo verifica
+  // e non impara l'identità del mittente. Emesso solo a membri autenticati (requireGroupMembership).
+  const cap = signToken({ t: 'cap', gid, uid: userId, epoch, exp });
+  const scap = signToken({ t: 'scap', gid, epoch, exp });
+  return { cap, scap, epoch };
 }
 
 /** Snapshot per il relay (endpoint interno): epoch corrente + UUID dei membri attivi. */

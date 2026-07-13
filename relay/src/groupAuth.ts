@@ -51,26 +51,43 @@ async function loadSigningKey(force = false): Promise<crypto.KeyObject | null> {
 }
 
 export interface Capability { gid: string; uid: string; epoch: number; exp: number }
+export interface SealedCapability { gid: string; epoch: number; exp: number }
 
-export async function verifyCapability(cap: string): Promise<Capability | null> {
+interface TokenPayload { t?: string; gid?: string; uid?: string; epoch?: number; exp?: number }
+
+/** Verifica la firma Ed25519 del token (con ricarica-chiave su rotazione) e ne ritorna il payload. */
+async function verifyTokenPayload(token: string): Promise<TokenPayload | null> {
   let key = await loadSigningKey();
   if (!key) return null;
-  const parts = cap.split('.');
+  const parts = token.split('.');
   if (parts.length !== 2) return null;
   let ok = false;
   try { ok = crypto.verify(null, Buffer.from(parts[0]), key, fromB64url(parts[1])); } catch { ok = false; }
   if (!ok) {
-    // Possibile rotazione della chiave backend: ricarica forzata e riprova UNA volta.
-    key = await loadSigningKey(true);
+    key = await loadSigningKey(true); // possibile rotazione: ricarica e riprova una volta
     if (!key) return null;
     try { ok = crypto.verify(null, Buffer.from(parts[0]), key, fromB64url(parts[1])); } catch { return null; }
     if (!ok) return null;
   }
-  let p: { t?: string; gid?: string; uid?: string; epoch?: number; exp?: number };
-  try { p = JSON.parse(fromB64url(parts[0]).toString('utf8')); } catch { return null; }
-  if (p.t !== 'cap') return null;
-  if (typeof p.exp !== 'number' || p.exp < Math.floor(Date.now() / 1000)) return null;
-  return { gid: String(p.gid), uid: String(p.uid), epoch: Number(p.epoch), exp: p.exp };
+  try {
+    const p = JSON.parse(fromB64url(parts[0]).toString('utf8')) as TokenPayload;
+    if (typeof p.exp !== 'number' || p.exp < Math.floor(Date.now() / 1000)) return null;
+    return p;
+  } catch { return null; }
+}
+
+export async function verifyCapability(cap: string): Promise<Capability | null> {
+  const p = await verifyTokenPayload(cap);
+  if (!p || p.t !== 'cap') return null;
+  return { gid: String(p.gid), uid: String(p.uid), epoch: Number(p.epoch), exp: p.exp! };
+}
+
+// SEALED SENDER: capability ANONIMA (solo gid+epoch, niente uid). Prova che il mittente è un
+// membro all'epoch E senza rivelare QUALE membro → il relay autorizza senza imparare l'identità.
+export async function verifySealedCapability(scap: string): Promise<SealedCapability | null> {
+  const p = await verifyTokenPayload(scap);
+  if (!p || p.t !== 'scap') return null;
+  return { gid: String(p.gid), epoch: Number(p.epoch), exp: p.exp! };
 }
 
 interface Snapshot { epoch: number; members: string[] }
@@ -115,5 +132,22 @@ export async function authorizeGroup(fromUserId: string, gid: string, cap?: stri
   if (!snap) return { ok: false, reason: 'group_unavailable' };
   if (c.epoch !== snap.epoch) return { ok: false, reason: 'epoch_stale' };
   if (!snap.members.includes(fromUserId)) return { ok: false, reason: 'not_member' };
+  return { ok: true, members: snap.members, epoch: snap.epoch };
+}
+
+/**
+ * SEALED SENDER: autorizza un messaggio di gruppo SENZA usare l'identità del mittente. Verifica il
+ * token anonimo (scap) e l'epoch contro lo snapshot membri. Il relay non impara chi ha inviato:
+ * l'identità vera resta solo nel payload E2EE. Stessa forward-secrecy verso ex-membri (epoch).
+ */
+export async function authorizeGroupSealed(gid: string, scap?: string): Promise<GroupVerdict> {
+  if (!scap) return { ok: false, reason: 'scap_required' };
+  const c = await verifySealedCapability(scap);
+  if (!c) return { ok: false, reason: 'scap_invalid' };
+  if (c.gid !== gid) return { ok: false, reason: 'scap_mismatch' };
+  let snap = await getGroupMembers(gid);
+  if (snap && c.epoch !== snap.epoch) snap = await getGroupMembers(gid, true);
+  if (!snap) return { ok: false, reason: 'group_unavailable' };
+  if (c.epoch !== snap.epoch) return { ok: false, reason: 'epoch_stale' };
   return { ok: true, members: snap.members, epoch: snap.epoch };
 }

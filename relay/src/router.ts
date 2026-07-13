@@ -8,7 +8,7 @@ import {
 } from './types';
 import { getLocalSocket, getRegion } from './store';
 import { enqueue } from './queue';
-import { authorizeGroup } from './groupAuth';
+import { authorizeGroup, authorizeGroupSealed } from './groupAuth';
 
 const REGION = (process.env.NODE_REGION ?? 'ge') as Region;
 const INTER_NODE_SECRET = process.env.INTER_NODE_SECRET ?? '';
@@ -159,6 +159,8 @@ export async function handleClientMessage(
 
   const gid = (msg as { gid?: string }).gid;
   const cap = (msg as { cap?: string }).cap;
+  const scap = (msg as { scap?: string }).scap;
+  const sealed = (msg as { sealed?: boolean }).sealed === true;
 
   // App group-centric: ogni messaggio di chat DEVE essere di gruppo (isolamento).
   if (msg.type === 'send_message' && !gid) {
@@ -168,17 +170,21 @@ export async function handleClientMessage(
 
   // ENFORCEMENT GRUPPO: verifica la capability firmata e consegna solo ai membri attivi.
   if (gid) {
-    const verdict = await authorizeGroup(fromUserId, gid, cap);
+    // SEALED SENDER: se richiesto, autorizza con la capability ANONIMA (scap) senza usare
+    // l'identità del mittente; altrimenti percorso classico (cap legata all'uid).
+    const verdict = sealed ? await authorizeGroupSealed(gid, scap) : await authorizeGroup(fromUserId, gid, cap);
     if (!verdict.ok) {
-      // NIENTE ORACOLO (fix audit): solo 'epoch_stale' è distinto, perché un membro legittimo
-      // deve potersi rigenerare la capability e ritentare. Ogni altra causa (gruppo inesistente,
-      // non-membro, cap non valida) → errore GENERICO UNIFORME, senza echo del gid: un estraneo
-      // non può distinguere "gruppo inesistente" da "esiste ma non sei membro".
+      // NIENTE ORACOLO (fix audit): solo 'epoch_stale' è distinto; ogni altra causa → errore
+      // GENERICO UNIFORME senza echo del gid.
       const err = verdict.reason === 'epoch_stale' ? 'epoch_stale' : 'group_forbidden';
       sendToSocket(socket, { type: 'error', error: err });
       return;
     }
     if (event.to && !verdict.members.includes(event.to)) return; // drop verso non-membri
+    // Sigilla il mittente verso il destinatario: il relay non rivela chi ha inviato (l'identità
+    // vera è dentro il payload E2EE, opaque sid). La ricevuta di consegna torna comunque al
+    // mittente reale via `fromUserId` (sotto), non al destinatario.
+    if (sealed) event.from = 'sealed';
   }
 
   if (!event.to) return;

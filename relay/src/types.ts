@@ -21,6 +21,10 @@ export const SendMessageSchema = z.object({
   gid: z.string().optional(),
   epoch: z.number().optional(),
   cap: z.string().optional(),
+  // SEALED SENDER: se sealed=true il relay autorizza con la capability ANONIMA (scap, solo
+  // gid+epoch) invece della cap legata all'uid, e non rivela il mittente al destinatario.
+  scap: z.string().optional(),
+  sealed: z.boolean().optional(),
 });
 export const CallOfferSchema = z.object({
   type: z.literal('call_offer'),

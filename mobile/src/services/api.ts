@@ -270,7 +270,7 @@ export const groupsApi = {
     request<{ id: string; epoch: number }>('/groups', { method: 'POST', body: { max_members: maxMembers } }),
   list: () => request<GroupSummary[]>('/groups'),
   members: (gid: string) => request<GroupMember[]>(`/groups/${gid}/members`),
-  capability: (gid: string) => request<{ cap: string; epoch: number }>(`/groups/${gid}/capability`),
+  capability: (gid: string) => request<{ cap: string; scap?: string; epoch: number }>(`/groups/${gid}/capability`),
   invite: (gid: string, opts: { bound_user_id?: string | null; requires_approval?: boolean; max_uses?: number; ttl_seconds?: number }) =>
     request<{ token: string; expires_at: number }>(`/groups/${gid}/invites`, { method: 'POST', body: opts }),
   revokeInvite: (gid: string, inviteId: string) =>

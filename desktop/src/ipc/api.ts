@@ -199,7 +199,7 @@ export function registerApiIpc(ipc: IpcMain): void {
   ipc.handle('groups.members', async (_e, gid: string) =>
     envelope<Array<{ user_id: string; role: string; member_epoch: number }>>(axios.get(`${BASE}/groups/${gid}/members`, { headers: await authed() })));
   ipc.handle('groups.capability', async (_e, gid: string) =>
-    envelope<{ cap: string; epoch: number }>(axios.get(`${BASE}/groups/${gid}/capability`, { headers: await authed() })));
+    envelope<{ cap: string; scap?: string; epoch: number }>(axios.get(`${BASE}/groups/${gid}/capability`, { headers: await authed() })));
   ipc.handle('groups.invite', async (_e, gid: string, opts: Record<string, unknown>) =>
     envelope<{ token: string; expires_at: number }>(axios.post(`${BASE}/groups/${gid}/invites`, opts ?? {}, { headers: await authed() })));
   ipc.handle('groups.join', async (_e, token: string) =>
