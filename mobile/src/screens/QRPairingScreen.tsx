@@ -4,35 +4,27 @@ import QRCode from 'react-native-qrcode-svg';
 import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { useAppSelector } from '@store/index';
 import { KC } from '@services/keychain';
+import { randomBytes, b64 } from '@utils/crypto';
 import { theme } from '@utils/theme';
 import { QRIcon, ScanIcon } from '@components/Icons';
 import HapticFeedback from 'react-native-haptic-feedback';
 
-// Pairing payload — the mobile device generates this QR, the desktop scans it
-// (or vice versa). Identity fingerprint proves the mobile owns the account;
-// ephemeral key would bootstrap a session key for the desktop. The nonce makes
-// each QR single-use; a real validator would require server round-trip here,
-// but for v0.2.5 we keep the scan local and surface the result for the user.
+// Payload di VERIFICA IDENTITÀ (non di linking). Il QR porta l'impronta della identity key:
+// l'altro dispositivo la confronta out-of-band per accertarsi che sia davvero questo account.
+// NON collega/mirrora account (il multi-dispositivo con sincronizzazione chiavi è una feature
+// futura che richiede un registro dispositivi lato server). Il nonce rende ogni QR diverso.
 interface PairingPayload {
   v: 1;
   appId: 'iimsg';
   userId: string;
   username: string;
-  fingerprint: string;   // identity pubkey hash
-  nonce: string;         // 16 random bytes base64
+  fingerprint: string;   // hash della identity pubkey
+  nonce: string;         // bytes casuali base64 (freschezza del QR)
   issuedAt: number;
-  expiresAt: number;     // issuedAt + 2min
 }
 
 function randomNonce(): string {
-  const b = new Uint8Array(12);
-  if (global.crypto && typeof (global.crypto as any).getRandomValues === 'function') {
-    (global.crypto as any).getRandomValues(b);
-  } else {
-    for (let i = 0; i < 12; i++) b[i] = Math.floor(Math.random() * 256);
-  }
-  // base64 (padded)
-  return btoa(String.fromCharCode(...b));
+  return b64.enc(randomBytes(12));
 }
 
 async function myFingerprint(): Promise<string> {
@@ -57,22 +49,17 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   useEffect(() => { myFingerprint().then(setFp); }, []);
 
   // Re-issue the nonce every minute so displayed QR doesn't stay valid too long.
-  const payload = useMemo<PairingPayload>(() => {
-    const now = Date.now();
-    return {
-      v: 1, appId: 'iimsg',
-      userId: user?.id ?? '',
-      username: user?.username ?? '',
-      fingerprint: fp,
-      nonce: randomNonce(),
-      issuedAt: now,
-      expiresAt: now + 120_000,
-    };
-    // refresh only when user/fp changes — a manual refresh button rotates nonce too
-  }, [user?.id, user?.username, fp]);
+  const payload = useMemo<PairingPayload>(() => ({
+    v: 1, appId: 'iimsg',
+    userId: user?.id ?? '',
+    username: user?.username ?? '',
+    fingerprint: fp,
+    nonce: randomNonce(),
+    issuedAt: Date.now(),
+  }), [user?.id, user?.username, fp]);
 
   const [refreshTick, setRefreshTick] = useState(0);
-  const liveNonce = useMemo(() => ({ ...payload, nonce: randomNonce(), issuedAt: Date.now(), expiresAt: Date.now() + 120_000 }), [refreshTick]);
+  const liveNonce = useMemo(() => ({ ...payload, nonce: randomNonce(), issuedAt: Date.now() }), [refreshTick, payload]);
   const qrData = JSON.stringify(liveNonce);
 
   const onScanRequest = async (): Promise<void> => {
@@ -96,24 +83,23 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as PairingPayload;
-        if (parsed.appId !== 'iimsg' || parsed.v !== 1) throw new Error('Not an iimsg QR');
-        if (parsed.expiresAt < Date.now()) throw new Error('QR expired');
+        if (parsed.appId !== 'iimsg' || parsed.v !== 1) throw new Error('Non è un QR di II Private Messenger');
         HapticFeedback.trigger('notificationSuccess', { enableVibrateFallback: true, ignoreAndroidSystemSettings: false });
         setScanned(parsed);
       } catch (e: any) {
-        Alert.alert('Invalid QR', e?.message ?? 'unknown');
+        Alert.alert('QR non valido', e?.message ?? 'formato non riconosciuto');
       }
     },
   });
 
   const confirmPair = (): void => {
     if (!scanned) return;
-    // In v0.2.5 we don't persist a paired-device record server-side. We show the
-    // verified identity so the user can compare fingerprints out-of-band.
+    // Verifica identità out-of-band: mostra l'impronta letta così l'utente la confronta con
+    // quella dell'altro dispositivo. Non collega account (nessun record device lato server).
     Alert.alert(
-      'Device verified',
-      `User: ${scanned.username}\nID: ${scanned.userId.slice(0, 8)}…\nFingerprint: ${scanned.fingerprint}\n\nReal session bootstrap lands in v0.3 (sender-keys + server ack).`,
-      [{ text: 'Done', onPress: () => navigation.goBack() }],
+      'Identità letta',
+      `Utente: @${scanned.username}\nID: ${scanned.userId.slice(0, 8)}…\nImpronta: ${scanned.fingerprint}\n\nConfronta questa impronta con quella mostrata sull'altro dispositivo: se coincidono, è davvero lo stesso account.`,
+      [{ text: 'OK', onPress: () => navigation.goBack() }],
     );
   };
 
@@ -121,18 +107,18 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     <SafeAreaView style={styles.c}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable>
-        <Text style={styles.title}>LINK DEVICE</Text>
+        <Text style={styles.title}>VERIFICA IDENTITÀ</Text>
         <View style={{ width: 28 }} />
       </View>
 
       <View style={styles.tabRow}>
         <Pressable onPress={() => setMode('show')} style={[styles.tab, mode === 'show' && styles.tabActive]}>
           <QRIcon size={16} color={mode === 'show' ? theme.bg : theme.text} />
-          <Text style={[styles.tabLabel, mode === 'show' && { color: theme.bg }]}>MY QR</Text>
+          <Text style={[styles.tabLabel, mode === 'show' && { color: theme.bg }]}>IL MIO QR</Text>
         </Pressable>
         <Pressable onPress={onScanRequest} style={[styles.tab, mode === 'scan' && styles.tabActive]}>
           <ScanIcon size={16} color={mode === 'scan' ? theme.bg : theme.text} />
-          <Text style={[styles.tabLabel, mode === 'scan' && { color: theme.bg }]}>SCAN</Text>
+          <Text style={[styles.tabLabel, mode === 'scan' && { color: theme.bg }]}>SCANSIONA</Text>
         </Pressable>
       </View>
 
@@ -148,12 +134,13 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
             />
           </View>
           <Text style={styles.userLabel}>@{user?.username ?? ''}</Text>
-          <Text style={styles.fpLabel}>FP · {fp}</Text>
+          <Text style={styles.fpLabel}>IMPRONTA · {fp}</Text>
           <Text style={styles.helper}>
-            Scan this from desktop to link your account. Nonce rotates every 2 min.
+            Fai scansionare questo QR dall'altro dispositivo per confrontare l'impronta della tua
+            identità e accertarti che sia davvero il tuo account. Non collega né sincronizza account.
           </Text>
           <Pressable onPress={() => setRefreshTick((n) => n + 1)} style={styles.refreshBtn}>
-            <Text style={styles.refreshLabel}>ROTATE NONCE</Text>
+            <Text style={styles.refreshLabel}>NUOVO QR</Text>
           </Pressable>
         </View>
       ) : (
@@ -174,7 +161,7 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
               <Text style={styles.scanResultName}>{scanned.username}</Text>
               <Text style={styles.scanResultFp}>FP · {scanned.fingerprint}</Text>
               <Pressable onPress={confirmPair} style={styles.confirmBtn}>
-                <Text style={styles.confirmLabel}>VERIFY & LINK</Text>
+                <Text style={styles.confirmLabel}>VERIFICA IMPRONTA</Text>
               </Pressable>
             </View>
           )}

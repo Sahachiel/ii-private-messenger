@@ -51,8 +51,8 @@ export const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         <Pressable onPress={() => navigation.navigate('QRPairing')} style={styles.pairRow}>
           <View style={styles.pairIcon}><QRIcon size={20} color={theme.accent} /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.pairTitle}>LINK A DESKTOP</Text>
-            <Text style={styles.pairSub}>Scan the desktop QR to mirror this account</Text>
+            <Text style={styles.pairTitle}>VERIFICA IDENTITÀ</Text>
+            <Text style={styles.pairSub}>Confronta l’impronta con un altro dispositivo</Text>
           </View>
           <Text style={styles.pairArrow}>›</Text>
         </Pressable>

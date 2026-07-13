@@ -443,7 +443,7 @@ function render() {
     state.authed ? el('div', { class: 'titlebar-actions' }, [
       el('span', { id: 'conn-state', class: 'conn-state', style: 'font-size:12px;margin-right:10px;color:' + (state.connState === 'connected' ? '#1f8a4c' : '#c98a00') + ';' },
         state.connState === 'connected' ? '● online' : state.connState === 'reconnecting' ? '● riconnessione…' : '● offline'),
-      el('button', { class: 'icon-btn', onClick: () => { state.view = state.view === 'pairing' ? 'chat' : 'pairing'; render(); } }, state.view === 'pairing' ? 'CHAT' : 'LINK PHONE'),
+      el('button', { class: 'icon-btn', onClick: () => { state.view = state.view === 'pairing' ? 'chat' : 'pairing'; render(); } }, state.view === 'pairing' ? 'CHAT' : 'VERIFICA ID'),
     ]) : null,
   ]);
   root.appendChild(titlebar);
@@ -832,7 +832,7 @@ function renderChat() {
 
 function renderPairing() {
   const wrap = el('div', { class: 'pairing-wrap' });
-  wrap.appendChild(el('h1', {}, 'LINK A MOBILE DEVICE'));
+  wrap.appendChild(el('h1', {}, 'VERIFICA IDENTITÀ'));
   const card = el('div', { class: 'pairing-card' });
   const qrHolder = el('div', { id: 'qr-holder', class: 'qr-holder' });
   card.appendChild(qrHolder);
@@ -840,9 +840,9 @@ function renderPairing() {
   const fp = el('div', { class: 'pairing-fp' }, 'FP · ' + ((state.me.fingerprint ?? '').slice(0, 24) || '(no identity)'));
   card.appendChild(user);
   card.appendChild(fp);
-  const hint = el('div', { class: 'pairing-hint' }, 'On your phone: Profile → Link a desktop → Scan. Nonce rotates every 2 min.');
+  const hint = el('div', { class: 'pairing-hint' }, 'Dal telefono: Profilo → Verifica identità → Scansiona, poi confronta l’impronta qui sopra. Serve a verificare che sia lo stesso account: non collega né sincronizza account tra dispositivi.');
   card.appendChild(hint);
-  const refresh = el('button', { class: 'ghost', onClick: () => drawQR() }, 'ROTATE NONCE');
+  const refresh = el('button', { class: 'ghost', onClick: () => drawQR() }, 'NUOVO QR');
   card.appendChild(refresh);
   wrap.appendChild(card);
   setTimeout(drawQR, 30);
