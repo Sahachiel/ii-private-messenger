@@ -19,13 +19,20 @@ import nacl from 'tweetnacl';
 import util from 'tweetnacl-util';
 import { KC, appKv } from './keychain';
 import { initAlice, initBob, drEncrypt, drDecrypt, DRSession, DRHeader } from './doubleRatchet';
+import { usersApi } from './api';
 import { KeyBundle, RemoteKeyBundle, EncryptedPayload } from '../types';
 
 const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
 
 const KV_SPK = 'dr.spk';            // signed prekey keypair (segreto) — usato dal responder
 const KV_SESSIONS = 'dr.sessions';  // Record<userId, DRSession>
-const KV_PENDING = 'dr.pending';    // Record<userId, {ik, spk}> — bundle del peer in attesa di init
+const KV_PENDING = 'dr.pending';    // Record<userId, {ik, spk, otp?}> — bundle del peer in attesa di init
+const KV_OTP = 'dr.otpSecrets';     // Record<keyId, secretB64> — one-time prekey (segreti) da consumare
+const KV_OTP_NEXT = 'dr.otpNextId'; // contatore keyId per non riusare mai un id
+const OTP_BATCH = 20;               // quante OTP tenere pronte lato server
+const OTP_LOW = 5;                  // sotto questa soglia si rigenera
+
+type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string } };
 
 interface LocalIdentity { publicKey: Uint8Array; secretKey: Uint8Array; registrationId: number }
 interface SPK { pub: string; sec: string; keyId: number }
@@ -73,6 +80,22 @@ export class SignalService {
     return nacl.sign.keyPair.fromSeed(seed);
   }
 
+  /** Genera N one-time prekey REALI e distinte: salva i segreti localmente, ritorna solo i pubblici. */
+  private mintOneTimePreKeys(n: number): Array<{ keyId: number; publicKey: string }> {
+    const secrets = loadMap<string>(KV_OTP);
+    let nextId = appKv.getNumber(KV_OTP_NEXT) ?? 2; // 1 storicamente riservato al placeholder
+    const out: Array<{ keyId: number; publicKey: string }> = [];
+    for (let i = 0; i < n; i++) {
+      const kp = nacl.box.keyPair();
+      const keyId = nextId++;
+      secrets[String(keyId)] = b64.enc(kp.secretKey);
+      out.push({ keyId, publicKey: b64.enc(kp.publicKey) });
+    }
+    saveMap(KV_OTP, secrets);
+    appKv.set(KV_OTP_NEXT, nextId);
+    return out;
+  }
+
   async generateKeyBundle(): Promise<KeyBundle> {
     await this.initialize();
     const spk = this.ensureSPK();
@@ -81,9 +104,19 @@ export class SignalService {
       identityPublicKey: b64.enc(this.identity!.publicKey),
       signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature) },
       registrationId: this.identity!.registrationId,
-      // X3DH-senza-OTP: prekey monouso placeholder (il bundle del backend ne richiede ≥1).
-      oneTimePreKeys: [{ keyId: 1, publicKey: spk.pub }],
+      // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano sul dispositivo).
+      oneTimePreKeys: this.mintOneTimePreKeys(OTP_BATCH),
     };
+  }
+
+  /** Se le OTP disponibili scendono sotto la soglia, ne rigenera e ricarica i pubblici sul server. */
+  private async replenishIfLow(): Promise<void> {
+    const remaining = Object.keys(loadMap<string>(KV_OTP)).length;
+    if (remaining >= OTP_LOW) return;
+    try {
+      const fresh = this.mintOneTimePreKeys(OTP_BATCH);
+      await usersApi.replenishPreKeys(fresh);
+    } catch { /* riproverà al prossimo consumo */ }
   }
 
   async buildSession(remoteUserId: string, _deviceId: number, bundle: RemoteKeyBundle): Promise<void> {
@@ -91,8 +124,11 @@ export class SignalService {
     // initiator al primo encrypt. Non sovrascrive una sessione DR già stabilita.
     const sessions = loadMap<DRSession>(KV_SESSIONS);
     if (sessions[remoteUserId]) return;
-    const pending = loadMap<{ ik: string; spk: string }>(KV_PENDING);
-    pending[remoteUserId] = { ik: bundle.identityPublicKey, spk: bundle.signedPreKey.publicKey };
+    const pending = loadMap<PendingBundle>(KV_PENDING);
+    // Il backend consegna UNA one-time prekey non usata (e la marca usata): la conserviamo per
+    // fonderla nell'handshake al primo encrypt.
+    const otp = bundle.oneTimePreKey ? { keyId: bundle.oneTimePreKey.keyId, pub: bundle.oneTimePreKey.publicKey } : undefined;
+    pending[remoteUserId] = { ik: bundle.identityPublicKey, spk: bundle.signedPreKey.publicKey, otp };
     saveMap(KV_PENDING, pending);
   }
 
@@ -101,10 +137,10 @@ export class SignalService {
     const sessions = loadMap<DRSession>(KV_SESSIONS);
     let s = sessions[remoteUserId];
     if (!s) {
-      const pending = loadMap<{ ik: string; spk: string }>(KV_PENDING);
+      const pending = loadMap<PendingBundle>(KV_PENDING);
       const p = pending[remoteUserId];
       if (!p) throw new Error(`No session with ${remoteUserId} — call buildSession first`);
-      s = initAlice(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), p.ik, p.spk);
+      s = initAlice(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), p.ik, p.spk, p.otp);
     }
     const { header, ct } = drEncrypt(s, plaintext);
     sessions[remoteUserId] = s;
@@ -120,7 +156,15 @@ export class SignalService {
     let s = sessions[remoteUserId];
     if (!s) {
       const spk = this.ensureSPK();
-      s = initBob(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), spk.pub, spk.sec, parsed.h);
+      // Se il mittente ha usato una one-time prekey (otpId nel primo header), recuperiamo il
+      // segreto corrispondente, lo usiamo e lo DISTRUGGIAMO (monouso). Poi rimpiazziamo le OTP scarse.
+      let otpSec: string | undefined;
+      if (parsed.h.otpId != null) {
+        const secrets = loadMap<string>(KV_OTP);
+        otpSec = secrets[String(parsed.h.otpId)];
+        if (otpSec) { delete secrets[String(parsed.h.otpId)]; saveMap(KV_OTP, secrets); void this.replenishIfLow(); }
+      }
+      s = initBob(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), spk.pub, spk.sec, parsed.h, otpSec);
     }
     const plain = drDecrypt(s, parsed.h, parsed.c);
     sessions[remoteUserId] = s;

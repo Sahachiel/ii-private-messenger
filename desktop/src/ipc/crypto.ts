@@ -34,11 +34,15 @@ const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
 interface LocalIdentity { pub: string; priv: string; regId: number }
 interface SPK { pub: string; sec: string; keyId: number }
 
+type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string } };
 const drStore = new Store<{
   spk?: SPK;
   sessions?: Record<string, DRSession>;
-  pending?: Record<string, { ik: string; spk: string }>;
+  pending?: Record<string, PendingBundle>;
+  otpSecrets?: Record<string, string>; // keyId -> secretB64 (one-time prekey da consumare)
+  otpNextId?: number;
 }>({ name: 'dr-state' });
+const OTP_BATCH = 20;
 
 let identityCache: { pub: Uint8Array; sec: Uint8Array; regId: number } | null = null;
 
@@ -71,8 +75,24 @@ function signKeyFrom(sec: Uint8Array): nacl.SignKeyPair {
 }
 function getSessions(): Record<string, DRSession> { return drStore.get('sessions') ?? {}; }
 function saveSessions(m: Record<string, DRSession>): void { drStore.set('sessions', m); }
-function getPending(): Record<string, { ik: string; spk: string }> { return drStore.get('pending') ?? {}; }
-function savePending(m: Record<string, { ik: string; spk: string }>): void { drStore.set('pending', m); }
+function getPending(): Record<string, PendingBundle> { return drStore.get('pending') ?? {}; }
+function savePending(m: Record<string, PendingBundle>): void { drStore.set('pending', m); }
+
+/** Genera N one-time prekey REALI e distinte: salva i segreti, ritorna i pubblici. */
+function mintOneTimePreKeys(n: number): Array<{ keyId: number; publicKey: string }> {
+  const secrets = drStore.get('otpSecrets') ?? {};
+  let nextId = drStore.get('otpNextId') ?? 2;
+  const out: Array<{ keyId: number; publicKey: string }> = [];
+  for (let i = 0; i < n; i++) {
+    const kp = nacl.box.keyPair();
+    const keyId = nextId++;
+    secrets[String(keyId)] = b64.enc(kp.secretKey);
+    out.push({ keyId, publicKey: b64.enc(kp.publicKey) });
+  }
+  drStore.set('otpSecrets', secrets);
+  drStore.set('otpNextId', nextId);
+  return out;
+}
 
 export function registerCryptoIpc(ipc: IpcMain): void {
   ipc.handle('crypto.generateIdentity', async () => {
@@ -83,7 +103,8 @@ export function registerCryptoIpc(ipc: IpcMain): void {
       identityPublicKey: b64.enc(id.pub),
       signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature) },
       registrationId: id.regId,
-      oneTimePreKeys: [{ keyId: 1, publicKey: spk.pub }],
+      // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano su questo dispositivo).
+      oneTimePreKeys: mintOneTimePreKeys(OTP_BATCH),
     };
   });
 
@@ -102,8 +123,11 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     const ik = bundle?.identityPublicKey;
     const spkPub = bundle?.signedPreKey?.publicKey ?? bundle?.signedPreKey?.public_key;
     if (!ik || !spkPub) throw new Error('bundle incompleto: servono identityPublicKey + signedPreKey.publicKey');
+    // Il backend consegna UNA one-time prekey non usata: la conserviamo per fonderla nell'handshake.
+    const otpRaw = bundle?.oneTimePreKey;
+    const otp = otpRaw ? { keyId: otpRaw.keyId ?? otpRaw.key_id, pub: otpRaw.publicKey ?? otpRaw.public_key } : undefined;
     const p = getPending();
-    p[peer] = { ik, spk: spkPub };
+    p[peer] = { ik, spk: spkPub, otp: otp && otp.keyId != null && otp.pub ? otp : undefined };
     savePending(p);
     return true;
   });
@@ -115,7 +139,7 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     if (!s) {
       const p = getPending()[peer];
       if (!p) throw new Error(`no session with ${peer} — call buildSession first`);
-      s = initAlice(b64.enc(id.sec), b64.enc(id.pub), p.ik, p.spk);
+      s = initAlice(b64.enc(id.sec), b64.enc(id.pub), p.ik, p.spk, p.otp);
     }
     const { header, ct } = drEncrypt(s, plaintext);
     sess[peer] = s; saveSessions(sess);
@@ -131,7 +155,16 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     let s = sess[peer];
     if (!s) {
       const spk = ensureSPK();
-      s = initBob(b64.enc(id.sec), b64.enc(id.pub), spk.pub, spk.sec, parsed.h);
+      // Se il mittente ha usato una one-time prekey, recuperiamo il segreto, lo usiamo e lo
+      // DISTRUGGIAMO (monouso).
+      let otpSec: string | undefined;
+      const otpId = (parsed.h as DRHeader).otpId;
+      if (otpId != null) {
+        const secrets = drStore.get('otpSecrets') ?? {};
+        otpSec = secrets[String(otpId)];
+        if (otpSec) { delete secrets[String(otpId)]; drStore.set('otpSecrets', secrets); }
+      }
+      s = initBob(b64.enc(id.sec), b64.enc(id.pub), spk.pub, spk.sec, parsed.h, otpSec);
     }
     const plain = drDecrypt(s, parsed.h, parsed.c);
     sess[peer] = s; saveSessions(sess);
