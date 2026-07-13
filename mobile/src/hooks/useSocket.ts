@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { socket } from '@services/socket';
 import { groupsApi } from '@services/api';
 import { useAppDispatch, useAppSelector } from '@store/index';
@@ -8,6 +8,8 @@ import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from 
 import { upsertGroup } from '@store/groupsSlice';
 import { navigate } from '../navigation/navRef';
 import { appKv } from '@services/keychain';
+import { displayMessageNotification, displayIncomingCall } from '@services/notifications';
+import { store } from '@store/index';
 
 export function useSocket(): void {
   const dispatch = useAppDispatch();
@@ -24,7 +26,22 @@ export function useSocket(): void {
           let payload: any;
           try { payload = JSON.parse(ev.ciphertext); } catch { break; }
           // ev.gid presente ⇒ messaggio di gruppo (sender key); assente ⇒ 1:1 pairwise.
-          dispatch(decryptIncoming({ from: ev.from, payload, messageId: ev.messageId, conversationId: ev.gid }));
+          const cid = ev.gid ?? ev.from;
+          dispatch(decryptIncoming({ from: ev.from, payload, messageId: ev.messageId, conversationId: ev.gid }))
+            .unwrap()
+            .then((res: any) => {
+              // Notifica locale solo se l'app NON è in primo piano e il messaggio è reale
+              // (non una distribuzione sender-key/di sistema). Rispetta il default "senza contenuto".
+              if (AppState.currentState === 'active' || !res?.envelope) return;
+              const conv = store.getState().chat.conversations[cid];
+              const title = conv?.peerName || 'Nuovo messaggio';
+              const k = res.envelope.kind;
+              const body = k === 'voice' ? '🎤 Messaggio vocale' : k === 'image' ? '📷 Foto'
+                : k === 'video' ? '🎬 Video' : k === 'file' ? '📎 File' : k === 'location' ? '📍 Posizione'
+                : (res.envelope.body || 'Messaggio');
+              displayMessageNotification(title, body);
+            })
+            .catch(() => {});
           break;
         }
         case 'delivery_receipt': {
@@ -59,6 +76,11 @@ export function useSocket(): void {
             }));
             // Apri la schermata chiamata (prima si fermava allo stato redux → nessuna UI, impossibile rispondere).
             navigate(isVideo ? 'VideoCall' : 'Call', { peerId: ev.from, peerName: ev.from });
+            // In background mostra la notifica di chiamata (suoneria + tocco per rispondere).
+            if (AppState.currentState !== 'active') {
+              const conv = store.getState().chat.conversations[ev.from];
+              displayIncomingCall(conv?.peerName || 'Contatto', ev.callType);
+            }
           }
           break;
         case 'call_answer':

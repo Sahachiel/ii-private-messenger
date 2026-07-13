@@ -1,6 +1,7 @@
 import { createClient, RedisClientType } from 'redis';
 import { WebSocket } from 'ws';
 import { RelayEvent } from './types';
+import { notifyPush } from './push';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://redis:6379';
 const REGION = process.env.NODE_REGION ?? 'ge';
@@ -43,6 +44,9 @@ export async function enqueue(userId: string, event: RelayEvent): Promise<void> 
     await c.rPush(key, payload);
     await c.lTrim(key, -MAX_QUEUE, -1);
     await c.expire(key, QUEUE_TTL_SEC);
+    // Destinatario offline: sveglialo con una push (best-effort). Solo per i messaggi veri,
+    // non per le ricevute di lettura o altri segnali.
+    if (event.type === 'message') void notifyPush(userId);
   } catch (err) {
     console.error(`[relay-${REGION}] enqueue:`, (err as Error).message);
   }

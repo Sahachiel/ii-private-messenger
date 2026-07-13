@@ -12,6 +12,7 @@ import regionRoutes from './routes/region';
 import messagesRoutes from './routes/messages';
 import mtdRoutes from './routes/mtd';
 import groupsRoutes from './routes/groups';
+import pushRoutes from './routes/push';
 import { ensureAdminKey } from './services/mtdAdmin';
 import { ensureGroupSigningKey } from './services/groupInvite';
 
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
   app.use('/api/messages', messagesRoutes);
   app.use('/api/mtd', mtdRoutes);
   app.use('/api/groups', groupsRoutes);
+  app.use('/api/push', pushRoutes);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ success: false, error: 'Not found' });
