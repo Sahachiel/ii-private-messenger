@@ -1,5 +1,6 @@
 import * as Keychain from 'react-native-keychain';
-import { appKv } from './keychain';
+import { appKv, KC, getSecureKv } from './keychain';
+import { sha256Hex } from '@utils/crypto';
 
 /**
  * Blocco applicazione con biometria / impronta / passcode.
@@ -78,4 +79,31 @@ export function shouldLockOnForeground(): boolean {
 
 export function markBackground(): void {
   appKv.set(KEY_LASTBG, Date.now());
+}
+
+// ─── Panic / duress wipe ────────────────────────────────────────────────────────────────────
+// Cancellazione TOTALE e irreversibile: distrugge identità Signal, sessioni Double Ratchet,
+// chiavi ML-KEM, one-time prekey, chat, gruppi — tutto. Usata sia dall'utente (cancellazione
+// d'emergenza) sia dal PIN di coercizione (chi è costretto a sbloccare digita un PIN che, invece
+// di aprire, cancella tutto e mostra un'app vuota).
+const KEY_DURESS = 'lock.duressHash';
+const DURESS_SALT = 'iimsg-duress-v1:';
+
+export function setDuressPin(pin: string | null): void {
+  if (!pin) { appKv.delete(KEY_DURESS); return; }
+  appKv.set(KEY_DURESS, sha256Hex(DURESS_SALT + pin));
+}
+export function hasDuressPin(): boolean { return !!appKv.getString(KEY_DURESS); }
+export function isDuressPin(pin: string): boolean {
+  const h = appKv.getString(KEY_DURESS);
+  return !!h && !!pin && h === sha256Hex(DURESS_SALT + pin);
+}
+
+/** Distrugge ogni chiave e dato locale. Best-effort su ogni store (non si ferma al primo errore). */
+export async function panicWipe(): Promise<void> {
+  try { await KC.clearToken(); } catch { /* */ }
+  try { await KC.clearCreds(); } catch { /* */ }
+  try { await KC.clearIdentity(); } catch { /* */ }
+  try { (await getSecureKv()).clearAll(); } catch { /* */ }
+  try { appKv.clearAll(); } catch { /* */ }
 }

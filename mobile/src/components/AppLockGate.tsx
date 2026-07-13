@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { isLockEnabled, shouldLockOnForeground, markBackground, authenticate, getSupportedBiometry } from '@services/appLock';
+import { isLockEnabled, shouldLockOnForeground, markBackground, authenticate, getSupportedBiometry, panicWipe } from '@services/appLock';
 import { LockScreen } from '@screens/LockScreen';
+import { store } from '@store/index';
+import { logoutUser } from '@store/authSlice';
 
 /**
  * Gate del blocco app. Copre i contenuti con la LockScreen quando l'app è bloccata:
@@ -18,6 +20,13 @@ export const AppLockGate: React.FC<{ children: React.ReactNode }> = ({ children 
   const tryUnlock = useCallback(async () => {
     const ok = await authenticate();
     if (ok) setLocked(false);
+  }, []);
+
+  // PIN di coercizione: cancella tutto e riporta al login (l'app appare vuota per chi costringe).
+  const onDuress = useCallback(async () => {
+    await panicWipe();
+    try { store.dispatch(logoutUser() as never); } catch { /* */ }
+    setLocked(false);
   }, []);
 
   useEffect(() => {
@@ -41,7 +50,7 @@ export const AppLockGate: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <>
       {children}
-      {locked && <LockScreen onUnlock={tryUnlock} biometry={biometry} />}
+      {locked && <LockScreen onUnlock={tryUnlock} onDuress={onDuress} biometry={biometry} />}
     </>
   );
 };

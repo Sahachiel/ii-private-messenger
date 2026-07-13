@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, Pressable, Switch, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, Pressable, Switch, Alert, Image, Modal, TextInput } from 'react-native';
 import DeviceInfo from 'react-native-device-info';
 import { useAppDispatch, useAppSelector } from '@store/index';
 import { logoutUser } from '@store/authSlice';
 import { signal } from '@services/signal';
 import { transport, TransportState } from '@services/transport';
-import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry } from '@services/appLock';
+import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry, hasDuressPin, setDuressPin, panicWipe } from '@services/appLock';
 import { isScreenProtectEnabled, applyScreenProtect } from '@services/screenSecurity';
 import { isNotifyContentHidden, setNotifyContentHidden } from '@services/notifications';
 import { theme } from '@utils/theme';
@@ -27,6 +27,9 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const [lockEnabled, setLockEnabled] = useState(isLockEnabled());
   const [biometry, setBiometry] = useState<string | null>(null);
   const [notifPreview, setNotifPreview] = useState(!isNotifyContentHidden());
+  const [duressSet, setDuressSet] = useState(hasDuressPin());
+  const [duressModal, setDuressModal] = useState(false);
+  const [duressInput, setDuressInput] = useState('');
   const [jailbroken, setJailbroken] = useState(false);
   const [antiCensorship, setAntiCensorship] = useState(transport.getManualEnabled());
   const [tunnelState, setTunnelState] = useState<TransportState>(transport.getState());
@@ -95,6 +98,23 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     { text: 'Esci', style: 'destructive', onPress: () => dispatch(logoutUser()) },
   ]);
 
+  const saveDuress = () => {
+    const pin = duressInput.trim();
+    setDuressPin(pin || null);
+    setDuressSet(!!pin);
+    setDuressInput('');
+    setDuressModal(false);
+  };
+
+  const confirmEmergencyWipe = () => Alert.alert(
+    'Cancellazione d’emergenza',
+    'Cancella IRREVERSIBILMENTE identità, chiavi, chat e gruppi da questo dispositivo. Non si può annullare. Procedere?',
+    [
+      { text: 'Annulla', style: 'cancel' },
+      { text: 'Cancella tutto', style: 'destructive', onPress: async () => { await panicWipe(); dispatch(logoutUser()); } },
+    ],
+  );
+
   return (
     <SafeAreaView style={styles.c}>
       <ScrollView contentContainerStyle={{ padding: 20 }}>
@@ -131,6 +151,10 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
             <Text style={styles.rowValue}>{autoLock === 'never' ? 'Solo all’avvio' : autoLock === '1' && getGraceSec() === 0 ? 'Subito' : `${autoLock} min`}</Text>
           </Pressable>
           <SwitchRow label="Anteprima notifiche" value={notifPreview} onChange={(v) => { setNotifPreview(v); setNotifyContentHidden(!v); }} />
+          <Pressable style={styles.row} onPress={() => setDuressModal(true)}>
+            <Text style={styles.rowLabel}>PIN di coercizione</Text>
+            <Text style={styles.rowValue}>{duressSet ? 'Impostato' : 'Non impostato'}</Text>
+          </Pressable>
         </Section>
 
         <Section title="Rete">
@@ -148,7 +172,38 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         <Pressable style={styles.logout} onPress={confirmLogout}>
           <Text style={styles.logoutText}>ESCI</Text>
         </Pressable>
+
+        <Pressable style={[styles.logout, { marginTop: 12 }]} onPress={confirmEmergencyWipe}>
+          <Text style={styles.logoutText}>CANCELLAZIONE D’EMERGENZA</Text>
+        </Pressable>
       </ScrollView>
+
+      {/* Modal PIN di coercizione: se impostato, digitarlo sul blocco cancella tutto invece di aprire. */}
+      <Modal visible={duressModal} transparent animationType="fade" onRequestClose={() => setDuressModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>PIN di coercizione</Text>
+            <Text style={styles.modalHint}>
+              Se qualcuno ti costringe a sbloccare l’app, digita questo PIN nella schermata di blocco:
+              invece di aprire, cancellerà IRREVERSIBILMENTE tutti i dati. Lascia vuoto per disattivarlo.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={duressInput}
+              onChangeText={setDuressInput}
+              placeholder="PIN (4-8 cifre)"
+              placeholderTextColor={theme.textDim}
+              secureTextEntry
+              keyboardType="number-pad"
+              maxLength={8}
+            />
+            <View style={styles.modalBtns}>
+              <Pressable style={styles.modalBtnGhost} onPress={() => { setDuressInput(''); setDuressModal(false); }}><Text style={styles.modalBtnGhostLabel}>ANNULLA</Text></Pressable>
+              <Pressable style={styles.modalBtnPrimary} onPress={saveDuress}><Text style={styles.modalBtnPrimaryLabel}>SALVA</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -197,4 +252,14 @@ const styles = StyleSheet.create({
   warn: { borderWidth: 1, borderColor: theme.alert, padding: 12, marginBottom: 20 },
   warnTitle: { color: theme.alert, fontWeight: '900', letterSpacing: 2, fontSize: 12 },
   warnText: { color: theme.textDim, fontSize: 12, marginTop: 6 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 28 },
+  modalCard: { width: '100%', backgroundColor: theme.bgElev, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 20 },
+  modalTitle: { color: theme.text, fontSize: 16, fontWeight: '900', marginBottom: 8 },
+  modalHint: { color: theme.textDim, fontSize: 12, lineHeight: 17, marginBottom: 14 },
+  modalInput: { height: 46, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.bg, color: theme.text, paddingHorizontal: 12, fontSize: 16, letterSpacing: 3 },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  modalBtnGhost: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: theme.border, alignItems: 'center' },
+  modalBtnGhostLabel: { color: theme.textDim, fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  modalBtnPrimary: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: theme.accent, alignItems: 'center' },
+  modalBtnPrimaryLabel: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 1 },
 });
