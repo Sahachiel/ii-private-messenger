@@ -545,12 +545,27 @@ function renderSidebar() {
   ]);
   side.appendChild(header);
   // Discovery SOLO-CODICE: niente ricerca per username. Si aggiunge un contatto col suo codice.
-  const searchBox = el('div', { class: 'search-box' });
-  const codeInput = el('input', {
+  const searchBox = el('div', { class: 'search-box', style: 'display:flex;gap:6px;align-items:center;' });
+  let codeInput;
+  const submitCode = () => {
+    const v = (codeInput.value || '').trim();
+    if (!v) { toast('Inserisci un codice IIM-XXXX-XXXX-XXXX'); return; }
+    codeInput.value = '';
+    addByCodeFlow(v);
+  };
+  codeInput = el('input', {
     placeholder: 'Aggiungi con codice IIM-XXXX-XXXX-XXXX…',
-    onKeyDown: (e) => { if (e.key === 'Enter') { const v = e.target.value; e.target.value = ''; addByCodeFlow(v); } },
+    style: 'flex:1;',
+    // NB: l'helper el() riconosce 'onKey' (→ onkeydown), NON 'onKeyDown' → usare onKey.
+    onKey: (e) => { if (e.key === 'Enter') submitCode(); },
   });
+  const addBtn = el('button', {
+    class: 'ghost',
+    style: 'padding:5px 14px;font-size:12px;font-weight:700;color:#00A884;white-space:nowrap;cursor:pointer;',
+    onClick: submitCode,
+  }, 'Aggiungi');
   searchBox.appendChild(codeInput);
+  searchBox.appendChild(addBtn);
   side.appendChild(searchBox);
 
   // Il MIO codice, da condividere per farsi trovare (nessuno può cercarti per nome).
