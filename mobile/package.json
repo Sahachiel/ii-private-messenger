@@ -15,8 +15,6 @@
     "@noble/post-quantum": "^0.6.1",
     "@notifee/react-native": "7.8.2",
     "@react-native-community/blur": "4.4.0",
-    "@react-native-firebase/app": "18.9.0",
-    "@react-native-firebase/messaging": "18.9.0",
     "@react-navigation/bottom-tabs": "^6.5.20",
     "@react-navigation/native": "^6.1.17",
     "@react-navigation/stack": "^6.3.29",

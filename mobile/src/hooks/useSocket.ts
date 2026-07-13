@@ -8,7 +8,7 @@ import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from 
 import { upsertGroup } from '@store/groupsSlice';
 import { navigate } from '../navigation/navRef';
 import { appKv } from '@services/keychain';
-import { displayMessageNotification, displayIncomingCall } from '@services/notifications';
+import { displayMessageNotification, displayIncomingCall, startBackgroundConnection, stopBackgroundConnection } from '@services/notifications';
 import { store } from '@store/index';
 
 export function useSocket(): void {
@@ -19,6 +19,8 @@ export function useSocket(): void {
   useEffect(() => {
     if (!relayUrl || !token) return;
     socket.connect(relayUrl, token);
+    // Push sovrana: foreground service che tiene viva la connessione al relay in background (no FCM).
+    void startBackgroundConnection();
     const off = socket.on((ev) => {
       switch (ev.type) {
         case 'message': {
@@ -126,7 +128,7 @@ export function useSocket(): void {
         }
       }
     });
-    return () => { off(); socket.disconnect(); };
+    return () => { off(); socket.disconnect(); void stopBackgroundConnection(); };
   }, [relayUrl, token, dispatch]);
 }
 

@@ -1,64 +1,70 @@
 import notifee, { AndroidImportance, AuthorizationStatus, EventType } from '@notifee/react-native';
-import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
-import firebase from '@react-native-firebase/app';
 import { Platform } from 'react-native';
-import { usersApi } from './api';
 import { appKv } from './keychain';
 
-// Privacy: di default le notifiche NON mostrano mittente né testo (solo "Nuovo messaggio"),
-// così nulla trapela dalla lockscreen. L'utente può riattivare l'anteprima dalle impostazioni.
+/**
+ * Notifiche SOVRANE — nessun Google/Firebase (FCM rimosso).
+ *
+ * Meccanismo: un FOREGROUND SERVICE (notifee) tiene vivo il processo dell'app in background, così
+ * il WebSocket verso il NOSTRO relay resta connesso e i messaggi arrivano in tempo reale → mostriamo
+ * una notifica locale. Zero dipendenza da Google Play Services: gira anche su Android de-googlato.
+ *
+ * ONESTÀ (limiti): se l'utente/OEM forza-chiude l'app o un battery-manager aggressivo uccide il
+ * servizio, la connessione cade finché l'app non viene riaperta. FCM sveglierebbe un'app uccisa via
+ * Google — noi rinunciamo a quella comodità in cambio della sovranità. Su iOS il push in background
+ * passa comunque da Apple (APNs), non eliminabile: là si userà un push APNS senza contenuto.
+ */
+
+// Privacy: di default le notifiche NON mostrano mittente né testo (solo "Nuovo messaggio").
 const KEY_HIDE = 'notify.hideContent';
 export function isNotifyContentHidden(): boolean { return appKv.getBoolean(KEY_HIDE) ?? true; }
 export function setNotifyContentHidden(v: boolean): void { appKv.set(KEY_HIDE, v); }
 
-// Firebase è OPZIONALE: se l'APK è compilato senza google-services.json non esiste il
-// FirebaseApp di default e qualunque chiamata a messaging() lancia ("Default FirebaseApp is
-// not initialized"). Prima l'app chiamava messaging().requestPermission() allo startup →
-// crash immediato del release. Ora ogni uso di messaging() è protetto: senza Firebase l'app
-// funziona lo stesso, solo senza notifiche push.
-function firebaseReady(): boolean {
-  try {
-    return firebase.apps.length > 0;
-  } catch {
-    return false;
-  }
-}
+let fgRegistered = false;
+let fgRunning = false;
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  // notifee gestisce il permesso su iOS e Android 13+ SENZA dipendere da Firebase.
   const settings = await notifee.requestPermission();
   return settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
 }
 
-export async function registerFcm(): Promise<string | null> {
-  if (!firebaseReady()) return null;
-  try {
-    await messaging().registerDeviceForRemoteMessages();
-    const token = await messaging().getToken();
-    if (token) {
-      try { await usersApi.updateFcmToken(token); } catch {}
-      return token;
-    }
-  } catch {}
-  return null;
-}
-
-export function onTokenRefresh(cb: (t: string) => void): () => void {
-  if (!firebaseReady()) return () => {};
-  return messaging().onTokenRefresh(async (t) => {
-    try { await usersApi.updateFcmToken(t); } catch {}
-    cb(t);
-  });
-}
-
 export async function ensureChannels(): Promise<void> {
   if (Platform.OS !== 'android') return;
-  await notifee.createChannel({
-    id: 'messages', name: 'Messages', importance: AndroidImportance.HIGH, sound: 'default', vibration: true,
-  });
-  await notifee.createChannel({
-    id: 'calls', name: 'Calls', importance: AndroidImportance.HIGH, sound: 'ringtone', vibration: true,
-  });
+  await notifee.createChannel({ id: 'messages', name: 'Messaggi', importance: AndroidImportance.HIGH, sound: 'default', vibration: true });
+  await notifee.createChannel({ id: 'calls', name: 'Chiamate', importance: AndroidImportance.HIGH, sound: 'ringtone', vibration: true });
+  await notifee.createChannel({ id: 'service', name: 'Connessione', importance: AndroidImportance.LOW });
+}
+
+/**
+ * Avvia il foreground service che mantiene viva la connessione al relay (push sovrana).
+ * La task del service non si risolve mai: tiene vivo il processo; il WebSocket vero gira nel JS.
+ */
+export async function startBackgroundConnection(): Promise<void> {
+  if (Platform.OS !== 'android' || fgRunning) return;
+  if (!fgRegistered) {
+    notifee.registerForegroundService(() => new Promise(() => { /* mantiene vivo il servizio */ }));
+    fgRegistered = true;
+  }
+  try {
+    await notifee.displayNotification({
+      title: 'II Private Messenger',
+      body: 'Connesso — ricezione messaggi attiva',
+      android: {
+        channelId: 'service',
+        asForegroundService: true,
+        ongoing: true,
+        smallIcon: 'ic_launcher',
+        pressAction: { id: 'default' },
+      },
+    });
+    fgRunning = true;
+  } catch { /* alcune build/OEM negano il foreground service: l'app funziona in foreground */ }
+}
+
+export async function stopBackgroundConnection(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try { await notifee.stopForegroundService(); } catch { /* */ }
+  fgRunning = false;
 }
 
 export async function displayMessageNotification(title: string, body: string): Promise<void> {
@@ -79,16 +85,6 @@ export async function displayIncomingCall(from: string, callType: 'voice' | 'vid
     android: { channelId: 'calls', smallIcon: 'ic_launcher', ongoing: true, fullScreenAction: { id: 'default' } },
     ios: { sound: 'ringtone', critical: true },
   });
-}
-
-export function onForegroundMessage(handler: (m: FirebaseMessagingTypes.RemoteMessage) => void): () => void {
-  if (!firebaseReady()) return () => {};
-  return messaging().onMessage(async (m) => handler(m));
-}
-
-export function onBackgroundMessage(handler: (m: FirebaseMessagingTypes.RemoteMessage) => Promise<void>): void {
-  if (!firebaseReady()) return;
-  messaging().setBackgroundMessageHandler(handler);
 }
 
 export function onNotificationInteraction(cb: (data?: any) => void): () => void {

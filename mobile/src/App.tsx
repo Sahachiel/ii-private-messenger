@@ -8,7 +8,7 @@ import { RootNavigator } from '@/navigation/RootNavigator';
 import { AppLockGate } from '@components/AppLockGate';
 import { navigate } from '@/navigation/navRef';
 import { theme } from '@utils/theme';
-import { ensureChannels, requestNotificationPermission, registerFcm } from '@services/notifications';
+import { ensureChannels, requestNotificationPermission } from '@services/notifications';
 import { groupsApi } from '@services/api';
 import { mtd } from '@/xsec-mtd/engine/MTDEngine';
 import { loadPolicy } from '@/xsec-mtd/policy';
@@ -46,8 +46,7 @@ export default function App() {
     (async () => {
       await applyScreenProtect(); // FLAG_SECURE secondo preferenza (default ON)
       await ensureChannels();
-      const ok = await requestNotificationPermission();
-      if (ok) await registerFcm();
+      await requestNotificationPermission();
     })();
     // Start on-device threat detection engine
     mtd.start();
