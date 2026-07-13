@@ -53,9 +53,28 @@ function kdfCK(ckB64: string): { ck: string; mk: Uint8Array } {
   const nck = nacl.hash(concat(Uint8Array.of(0x02), ck)).slice(0, 32);
   return { ck: b64.enc(nck), mk };
 }
+// PADDING METADATI: il testo cifrato viene portato a una TAGLIA FISSA (bucket) così la sua
+// lunghezza non rivela la lunghezza del messaggio. Schema ISO/IEC 7816-4: byte 0x80 + zeri fino
+// al bucket. Rimozione non ambigua (il plaintext è JSON UTF-8, non finisce mai con 0x00/0x80).
+// DEVE restare identico sul desktop per l'interop.
+const PAD_BUCKETS = [64, 256, 1024, 4096, 16384];
+function padTo(pt: Uint8Array): Uint8Array {
+  const need = pt.length + 1; // +1 per il marker 0x80
+  const target = PAD_BUCKETS.find((b) => need <= b) ?? Math.ceil(need / 16384) * 16384;
+  const out = new Uint8Array(target); // già zero-inizializzato
+  out.set(pt, 0);
+  out[pt.length] = 0x80;
+  return out;
+}
+function unpad(p: Uint8Array): Uint8Array {
+  let i = p.length - 1;
+  while (i >= 0 && p[i] === 0x00) i--;
+  if (i < 0 || p[i] !== 0x80) return p; // messaggio non-paddato (retrocompat) → invariato
+  return p.slice(0, i);
+}
 function encryptMsg(mk: Uint8Array, plaintext: string): string {
   const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-  const ct = nacl.secretbox(util.decodeUTF8(plaintext), nonce, mk);
+  const ct = nacl.secretbox(padTo(util.decodeUTF8(plaintext)), nonce, mk);
   return b64.enc(concat(nonce, ct));
 }
 function decryptMsg(mk: Uint8Array, packedB64: string): string {
@@ -64,7 +83,7 @@ function decryptMsg(mk: Uint8Array, packedB64: string): string {
   const ct = raw.slice(nacl.secretbox.nonceLength);
   const pt = nacl.secretbox.open(ct, nonce, mk);
   if (!pt) throw new Error('dr_decrypt_failed');
-  return util.encodeUTF8(pt);
+  return util.encodeUTF8(unpad(pt));
 }
 
 /**
