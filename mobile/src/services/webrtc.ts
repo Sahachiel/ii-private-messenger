@@ -29,9 +29,15 @@ export class WebRTCService {
 
   async initialize(turn: TurnConfig, callType: CallType): Promise<void> {
     this.callType = callType;
+    // SOVRANITÀ: nessuno STUN di Google. Il nostro coturn self-hosted fa sia STUN (binding per i
+    // candidati srflx) sia TURN (relay). Deriviamo un endpoint stun: dal turns: così la scoperta
+    // dell'IP pubblico non passa MAI da terze parti. Niente coturn → niente STUN esterno.
+    const stunUrls = (turn.urls ?? [])
+      .map((u) => u.replace(/^turns?:/i, 'stun:').replace(/:5349\b/, ':3478'))
+      .filter(Boolean);
     const config: any = {
       iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
+        ...(stunUrls.length ? [{ urls: stunUrls }] : []),
         { urls: turn.urls, username: turn.username, credential: turn.credential },
       ],
       iceCandidatePoolSize: 10,

@@ -23,10 +23,14 @@
   }
 
   function iceServers(t) {
-    const s = [{ urls: 'stun:stun.l.google.com:19302' }];
+    // SOVRANITÀ: nessuno STUN di Google. Solo il nostro coturn self-hosted (STUN binding + TURN
+    // relay), con endpoint stun: derivato dal turns:. La scoperta dell'IP non passa da terze parti.
+    const s = [];
     if (t && t.urls) {
-      const urls = Array.isArray(t.urls) ? t.urls : [t.urls];
-      if (urls.filter(Boolean).length) s.push({ urls: urls.filter(Boolean), username: t.username || '', credential: t.credential || '' });
+      const urls = (Array.isArray(t.urls) ? t.urls : [t.urls]).filter(Boolean);
+      const stun = urls.map((u) => u.replace(/^turns?:/i, 'stun:').replace(/:5349\b/, ':3478')).filter(Boolean);
+      if (stun.length) s.push({ urls: stun });
+      if (urls.length) s.push({ urls, username: t.username || '', credential: t.credential || '' });
     }
     return s;
   }
