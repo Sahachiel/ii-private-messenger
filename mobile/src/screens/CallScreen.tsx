@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import { Avatar } from '@components/Avatar';
 import { CallControls } from '@components/CallControls';
@@ -7,6 +7,7 @@ import { toggleMute, endCall, setStatus } from '@store/callSlice';
 import { useWebRTC } from '@hooks/useWebRTC';
 import { socket } from '@services/socket';
 import { webrtc } from '@services/webrtc';
+import { setSpeaker } from '@services/audioRoute';
 import { theme } from '@utils/theme';
 import { COUNTRY_LIST } from '@utils/countries';
 
@@ -33,6 +34,10 @@ export const CallScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
     navigation.goBack();
   };
   const onMute = () => { dispatch(toggleMute()); webrtc.setMuted(!call.isMuted); };
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const onSpeaker = () => { const next = !speakerOn; setSpeakerOn(next); void setSpeaker(next); };
+  // Al termine della chiamata riporta l'audio all'auricolare.
+  useEffect(() => () => { void setSpeaker(false); }, []);
 
   const mm = String(Math.floor(call.callDuration / 60)).padStart(2, '0');
   const ss = String(call.callDuration % 60).padStart(2, '0');
@@ -59,7 +64,8 @@ export const CallScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
         isVideo={false}
         isVideoEnabled={false}
         onToggleMute={onMute}
-        onSpeaker={() => {}}
+        onSpeaker={onSpeaker}
+        isSpeakerOn={speakerOn}
         onEnd={onEnd}
       />
     </SafeAreaView>

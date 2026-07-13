@@ -98,11 +98,25 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
     return () => { alive = false; };
   }, [messages.length, conversationId, myId, isGroup]);
 
+  // Nei gruppi il typing va inviato ai singoli membri (il relay instrada per user id, non per gid);
+  // conversationId=gid così il destinatario lo indicizza sulla conversazione. Cap in cache per epoch.
+  const groupCapRef = useRef<string | undefined>(undefined);
+  const typingActive = useRef(false);
+  const emitTyping = async (active: boolean): Promise<void> => {
+    if (isGroup) {
+      if (!groupCapRef.current) { try { groupCapRef.current = (await groupsApi.capability(conversationId)).cap; } catch { return; } }
+      for (const uid of groupMembers) {
+        if (uid && uid !== myId) socket.send({ type: active ? 'typing_start' : 'typing_stop', to: uid, conversationId, gid: conversationId, cap: groupCapRef.current } as any);
+      }
+    } else {
+      socket.send({ type: active ? 'typing_start' : 'typing_stop', to: peerId, conversationId });
+    }
+  };
   const onType = (v: string): void => {
     setText(v);
-    socket.send({ type: 'typing_start', to: peerId, conversationId });
+    if (!typingActive.current) { typingActive.current = true; void emitTyping(true); }
     clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => socket.send({ type: 'typing_stop', to: peerId, conversationId }), 1500);
+    typingTimer.current = setTimeout(() => { typingActive.current = false; void emitTyping(false); }, 1500);
   };
 
   const send = async (): Promise<void> => {

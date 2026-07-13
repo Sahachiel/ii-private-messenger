@@ -135,6 +135,12 @@ if ! grep -q "BIND_VPN_SERVICE" "$MAN"; then
   echo "  ~ AndroidManifest: permessi + Re4lityVpnService"
 fi
 
+# 8b) Deep link iimsg://join?t=<token> — intent-filter VIEW sul MainActivity (link invito reale)
+if ! grep -q 'android:scheme="iimsg"' "$MAN"; then
+  sed -i 's|<category android:name="android.intent.category.LAUNCHER" />|<category android:name="android.intent.category.LAUNCHER" />\n        </intent-filter>\n        <intent-filter>\n            <action android:name="android.intent.action.VIEW" />\n            <category android:name="android.intent.category.DEFAULT" />\n            <category android:name="android.intent.category.BROWSABLE" />\n            <data android:scheme="iimsg" />|' "$MAN" || true
+  echo "  ~ AndroidManifest: deep link iimsg://"
+fi
+
 # 9) Firebase google-services: applica il plugin SOLO se il file esiste (build non bloccata senza)
 if [ -f "$ANDROID/app/google-services.json" ] && ! grep -q "google-services" "$APPGRADLE"; then
   echo 'apply plugin: "com.google.gms.google-services"' >> "$APPGRADLE"

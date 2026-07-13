@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, SafeAreaView, Pressable, TextInput, Alert, ScrollView } from 'react-native';
 import { ConversationItem } from '@components/ConversationItem';
 import { StatusBadge } from '@components/StatusBadge';
+import { socket } from '@services/socket';
 import { Avatar } from '@components/Avatar';
 import { StoryThumbnail } from '@components/StoryThumbnail';
 import { useAppSelector, useAppDispatch } from '@store/index';
@@ -18,6 +19,8 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const stories = useAppSelector((s) => s.stories);
   const user = useAppSelector((s) => s.auth.user);
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated);
+  const [connected, setConnected] = useState(socket.isOpen());
+  useEffect(() => socket.onState(setConnected), []);
   const [query, setQuery] = useState('');
 
   const list = useMemo(() => {
@@ -81,7 +84,7 @@ export const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           placeholderTextColor={theme.textDim}
           style={styles.search}
         />
-        <View style={styles.statusWrap}><StatusBadge status={isAuthenticated ? 'online' : 'offline'} /></View>
+        <View style={styles.statusWrap}><StatusBadge status={isAuthenticated && connected ? 'online' : 'offline'} /></View>
       </View>
 
       {/* Stories rail */}

@@ -7,10 +7,20 @@ export class SocketService {
   private url: string | null = null;
   private token: string | null = null;
   private listeners = new Set<Listener>();
+  private stateListeners = new Set<(connected: boolean) => void>();
   private outbound: RelayMessage[] = [];
   private backoff = 1000;
   private pingTimer: any = null;
   private intentional = false;
+
+  private emitState(connected: boolean): void { this.stateListeners.forEach((l) => l(connected)); }
+
+  /** Sottoscrive lo stato di connessione reale al relay (true=OPEN). Emette subito lo stato attuale. */
+  onState(cb: (connected: boolean) => void): () => void {
+    this.stateListeners.add(cb);
+    cb(this.isOpen());
+    return () => { this.stateListeners.delete(cb); };
+  }
 
   connect(url: string, token: string): void {
     this.url = url;
@@ -28,6 +38,7 @@ export class SocketService {
       this.send({ type: 'auth', token: this.token! });
       while (this.outbound.length) this.rawSend(this.outbound.shift()!);
       this.pingTimer = setInterval(() => this.send({ type: 'ping' }), 25000);
+      this.emitState(true);
     };
 
     this.ws.onmessage = (ev) => {
@@ -41,6 +52,7 @@ export class SocketService {
 
     this.ws.onclose = () => {
       clearInterval(this.pingTimer);
+      this.emitState(false);
       if (this.intentional) return;
       setTimeout(() => this.open(), Math.min(this.backoff, 30000));
       this.backoff *= 2;

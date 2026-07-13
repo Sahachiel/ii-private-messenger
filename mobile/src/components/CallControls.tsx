@@ -10,10 +10,11 @@ interface Props {
   onToggleVideo?: () => void;
   onSwitchCamera?: () => void;
   onSpeaker?: () => void;
+  isSpeakerOn?: boolean;
   onEnd: () => void;
 }
 
-export const CallControls: React.FC<Props> = ({ isMuted, isVideo, isVideoEnabled, onToggleMute, onToggleVideo, onSwitchCamera, onSpeaker, onEnd }) => (
+export const CallControls: React.FC<Props> = ({ isMuted, isVideo, isVideoEnabled, onToggleMute, onToggleVideo, onSwitchCamera, onSpeaker, isSpeakerOn, onEnd }) => (
   <View style={styles.row}>
     <Btn label={isMuted ? 'UNMUTE' : 'MUTE'} onPress={onToggleMute} active={isMuted} />
     {isVideo ? (
@@ -22,7 +23,7 @@ export const CallControls: React.FC<Props> = ({ isMuted, isVideo, isVideoEnabled
         <Btn label="FLIP" onPress={onSwitchCamera!} />
       </>
     ) : (
-      <Btn label="SPEAKER" onPress={onSpeaker!} />
+      <Btn label="SPEAKER" onPress={onSpeaker!} active={isSpeakerOn} />
     )}
     <Btn label="END" onPress={onEnd} danger />
   </View>
