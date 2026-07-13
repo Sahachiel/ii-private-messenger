@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from '@store/index';
 import { logoutUser } from '@store/authSlice';
 import { signal } from '@services/signal';
 import { transport, TransportState } from '@services/transport';
-import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry, hasDuressPin, setDuressPin, panicWipe } from '@services/appLock';
+import { isLockEnabled, enableLock, disableLock, setGraceSec, getGraceSec, getSupportedBiometry, hasDuressPin, setDuressPin, panicWipe, getDeadmanDays, setDeadmanDays } from '@services/appLock';
 import { isScreenProtectEnabled, applyScreenProtect } from '@services/screenSecurity';
 import { isNotifyContentHidden, setNotifyContentHidden } from '@services/notifications';
 import { theme } from '@utils/theme';
@@ -28,6 +28,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const [biometry, setBiometry] = useState<string | null>(null);
   const [notifPreview, setNotifPreview] = useState(!isNotifyContentHidden());
   const [duressSet, setDuressSet] = useState(hasDuressPin());
+  const [deadman, setDeadman] = useState(getDeadmanDays());
   const [duressModal, setDuressModal] = useState(false);
   const [duressInput, setDuressInput] = useState('');
   const [jailbroken, setJailbroken] = useState(false);
@@ -154,6 +155,15 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <Pressable style={styles.row} onPress={() => setDuressModal(true)}>
             <Text style={styles.rowLabel}>PIN di coercizione</Text>
             <Text style={styles.rowValue}>{duressSet ? 'Impostato' : 'Non impostato'}</Text>
+          </Pressable>
+          <Pressable style={styles.row} onPress={() => Alert.alert('Cancellazione automatica', 'Cancella tutto se l’app non viene aperta per:', [
+            { text: 'Mai', onPress: () => { setDeadman(0); setDeadmanDays(0); } },
+            { text: '7 giorni', onPress: () => { setDeadman(7); setDeadmanDays(7); } },
+            { text: '30 giorni', onPress: () => { setDeadman(30); setDeadmanDays(30); } },
+            { text: '90 giorni', onPress: () => { setDeadman(90); setDeadmanDays(90); } },
+          ])}>
+            <Text style={styles.rowLabel}>Cancellazione automatica (inattività)</Text>
+            <Text style={styles.rowValue}>{deadman ? `${deadman} giorni` : 'Mai'}</Text>
           </Pressable>
         </Section>
 

@@ -14,6 +14,8 @@ import { mtd } from '@/xsec-mtd/engine/MTDEngine';
 import { loadPolicy } from '@/xsec-mtd/policy';
 import { KC, appKv, getSecureKv } from '@services/keychain';
 import { applyScreenProtect } from '@services/screenSecurity';
+import { deadmanTriggered, touchLastActive, panicWipe } from '@services/appLock';
+import { logoutUser } from '@store/authSlice';
 import { sweepExpiredNow, upsertConversation } from '@store/chatSlice';
 import { upsertGroup } from '@store/groupsSlice';
 import { sweepExpired as sweepStories } from '@store/storiesSlice';
@@ -44,6 +46,9 @@ function onDeepLink(url: string | null): void {
 export default function App() {
   useEffect(() => {
     (async () => {
+      // Dead-man's switch: se l'app non è aperta da troppi giorni, cancella tutto prima di procedere.
+      if (deadmanTriggered()) { await panicWipe(); store.dispatch(logoutUser() as never); }
+      else touchLastActive();
       await applyScreenProtect(); // FLAG_SECURE secondo preferenza (default ON)
       await ensureChannels();
       await requestNotificationPermission();

@@ -99,6 +99,24 @@ export function isDuressPin(pin: string): boolean {
   return !!h && !!pin && h === sha256Hex(DURESS_SALT + pin);
 }
 
+// ─── Dead-man's switch ──────────────────────────────────────────────────────────────────────
+// Se l'app non viene aperta per N giorni, cancella tutto da sola (es. il dispositivo è stato
+// sequestrato/perso e non lo sblocchi più). 0 = disattivato.
+const KEY_DEADMAN = 'lock.deadmanDays';
+const KEY_LASTACTIVE = 'lock.lastActive';
+
+export function getDeadmanDays(): number { return appKv.getNumber(KEY_DEADMAN) ?? 0; }
+export function setDeadmanDays(days: number): void { appKv.set(KEY_DEADMAN, days); }
+export function touchLastActive(): void { appKv.set(KEY_LASTACTIVE, Date.now()); }
+/** true se il tempo dall'ultima apertura ha superato la soglia (→ va fatto panicWipe). */
+export function deadmanTriggered(): boolean {
+  const days = getDeadmanDays();
+  if (!days) return false;
+  const last = appKv.getNumber(KEY_LASTACTIVE);
+  if (last === undefined) { touchLastActive(); return false; }
+  return (Date.now() - last) / 86_400_000 >= days;
+}
+
 /** Distrugge ogni chiave e dato locale. Best-effort su ogni store (non si ferma al primo errore). */
 export async function panicWipe(): Promise<void> {
   try { await KC.clearToken(); } catch { /* */ }
