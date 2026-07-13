@@ -153,10 +153,14 @@ export const logoutUser = createAsyncThunk('auth/logout', async () => {
   try { await authApi.logout(); } catch {}
   socket.disconnect();
   setAccessToken(null);
+  // Logout "soft" (coerente col testo "la sessione e le chiavi restano sul dispositivo"):
+  // termina la sessione e disattiva il login automatico/biometrico, ma PRESERVA l'identità
+  // Signal (ii.signal.identity), le sessioni Double Ratchet, le chiavi di gruppo, i safety
+  // record e la cronologia in MMKV. Così al re-login con lo stesso account l'E2EE resta
+  // continuo (nessuna chiave pubblicata sul backend diventa obsoleta) e le chat riappaiono.
+  // Per una cancellazione totale c'è l'auto-wipe MTD su dispositivo compromesso (App.tsx).
   await KC.clearToken();
   await KC.clearCreds();
-  await KC.clearIdentity();
-  appKv.clearAll();
 });
 
 export const refreshMyRegion = createAsyncThunk('auth/region', async () => regionApi.myNode());

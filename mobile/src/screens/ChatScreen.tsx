@@ -9,6 +9,7 @@ import { sendMessage, sendReaction, markAsRead, deleteMessage, setDisappearingTi
 import { sendToGroup } from '@store/groupsSlice';
 import { initiateCall } from '@store/callSlice';
 import { socket } from '@services/socket';
+import { groupsApi } from '@services/api';
 import { theme, wallpaperById } from '@utils/theme';
 import { SendIcon, PlusIcon, SmileIcon, ReplyIcon, TrashIcon, CopyIcon, ForwardIcon } from '@components/Icons';
 import { TrustBadge } from '@components/TrustBadge';
@@ -77,6 +78,25 @@ export const ChatScreen: React.FC<{ route: any; navigation: any }> = ({ route, n
       }));
     }
   }, [conversationId, messages.length, dispatch]);
+
+  // Invia read_receipt (spunte blu) al mittente dei messaggi RICEVUTI mentre la chat è aperta.
+  // Una volta confermato un id non lo si re-invia (ackedRef). Per i gruppi serve la capability firmata.
+  const ackedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const received = messages.filter((m) => m.senderId && m.senderId !== myId && !ackedRef.current.has(m.id));
+    if (!received.length) return;
+    let alive = true;
+    (async () => {
+      let cap: string | undefined;
+      if (isGroup) { try { cap = (await groupsApi.capability(conversationId)).cap; } catch { return; } }
+      if (!alive) return;
+      for (const m of received) {
+        ackedRef.current.add(m.id);
+        socket.send({ type: 'read_receipt', to: m.senderId, messageId: m.id, conversationId, gid: isGroup ? conversationId : undefined, cap } as any);
+      }
+    })();
+    return () => { alive = false; };
+  }, [messages.length, conversationId, myId, isGroup]);
 
   const onType = (v: string): void => {
     setText(v);

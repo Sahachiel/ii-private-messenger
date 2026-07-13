@@ -277,11 +277,15 @@ const chatSlice = createSlice({
       const list = state.messages[a.payload.conversationId];
       if (!list) return;
       const m = list.find((x) => x.id === a.payload.messageId);
-      if (m) {
-        m.status = a.payload.status;
-        if (a.payload.status === 'delivered') m.deliveredAt = Date.now();
-        if (a.payload.status === 'read') m.readAt = Date.now();
-      }
+      if (!m) return;
+      // Monotòno: lo stato avanza solo (pending<sent<delivered<read); una delivery in ritardo
+      // non deve annullare un 'read' già impostato. 'failed' è sempre applicabile.
+      const rank: Record<MessageStatus, number> = { pending: 0, sent: 1, delivered: 2, read: 3, failed: -1 };
+      const next = a.payload.status;
+      if (next !== 'failed' && (rank[next] ?? 0) <= (rank[m.status] ?? 0)) return;
+      m.status = next;
+      if (next === 'delivered') m.deliveredAt = Date.now();
+      if (next === 'read') m.readAt = Date.now();
     },
     setDraft(state, a: PayloadAction<{ conversationId: string; body: string }>) {
       state.drafts[a.payload.conversationId] = a.payload.body;

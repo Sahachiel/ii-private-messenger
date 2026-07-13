@@ -28,25 +28,26 @@ export function useSocket(): void {
           break;
         }
         case 'delivery_receipt': {
-          const st = (window as any);
-          void st;
-          // Redux thunk would be cleaner; we iterate via dispatch
-          // No-op; chatSlice matches on messageId via updateMessageStatus callers
-          break;
-        }
-        case 'read_receipt':
-          if (ev.messageId && ev.conversationId) {
-            dispatch(updateMessageStatus({ conversationId: ev.conversationId, messageId: ev.messageId, status: 'read' }));
+          // Il relay conferma al mittente la consegna → spunta ✓✓ "consegnato".
+          const cid = ev.gid ?? ev.conversationId;
+          if (ev.messageId && cid) {
+            dispatch(updateMessageStatus({ conversationId: cid, messageId: ev.messageId, status: 'delivered' }));
           }
           break;
-        case 'delivery_receipt':
-          // chatSlice matches on messageId scan in reducer below — emit a thunk later if needed
+        }
+        case 'read_receipt': {
+          // Il destinatario ha letto → spunta ✓✓ blu "letto".
+          const cid = ev.gid ?? ev.conversationId;
+          if (ev.messageId && cid) {
+            dispatch(updateMessageStatus({ conversationId: cid, messageId: ev.messageId, status: 'read' }));
+          }
           break;
+        }
         case 'typing_start':
-          if (ev.from) dispatch(setTyping({ userId: ev.from, active: true }));
+          if (ev.from) dispatch(setTyping({ userId: ev.conversationId ?? ev.from, active: true }));
           break;
         case 'typing_stop':
-          if (ev.from) dispatch(setTyping({ userId: ev.from, active: false }));
+          if (ev.from) dispatch(setTyping({ userId: ev.conversationId ?? ev.from, active: false }));
           break;
         case 'call_offer':
           if (ev.from && ev.callType && ev.sdp) {
