@@ -239,6 +239,18 @@ async function leaveGroupFlow(gid) {
 
 // Verifica identità (numero di sicurezza) per una chat 1:1. Risolve l'altro membro, ne prende
 // l'identity key e calcola il numero a 60 cifre (stesso algoritmo del mobile → i numeri coincidono).
+// Avvia una chiamata da una chat di gruppo 1:1 (2 membri): risolve l'altro membro e chiama.
+async function startGroupCall(gid, isVideo) {
+  try {
+    const members = await iimsg.groups.members(gid);
+    const others = members.map((m) => m.user_id).filter((u) => u !== state.me.userId);
+    if (others.length !== 1) { toast('Le chiamate sono disponibili solo nelle chat 1:1.'); return; }
+    const name = (state.groups[gid] && state.groups[gid].name) || 'Contatto';
+    if (window.iimsgCall && window.iimsgCall.start) window.iimsgCall.start(others[0], name, isVideo);
+    else toast('Modulo chiamate non disponibile.');
+  } catch (e) { toast('Impossibile avviare la chiamata: ' + (e.message || e)); }
+}
+
 async function verifyGroupFlow(gid) {
   try {
     const members = await iimsg.groups.members(gid);
@@ -294,6 +306,21 @@ function showInviteDialog(token, groupName) {
   document.body.appendChild(overlay);
 }
 
+// Invia read_receipt (spunte blu) per i messaggi ricevuti del gruppo attivo. Idempotente via readAcked.
+async function sendGroupReadReceipts(gid) {
+  const g = state.groups[gid];
+  if (!g || !g.messages) return;
+  state.readAcked = state.readAcked || {};
+  const toAck = g.messages.filter((m) => !m.mine && m.from && m.id && !state.readAcked[m.id]);
+  if (!toAck.length) return;
+  let cap;
+  try { cap = (await iimsg.groups.capability(gid)).cap; } catch { return; }
+  for (const m of toAck) {
+    state.readAcked[m.id] = true;
+    try { await iimsg.socket.send({ type: 'read_receipt', to: m.from, messageId: m.id, conversationId: gid, gid, cap }); } catch {}
+  }
+}
+
 async function sendToGroup(gid, kind, body, media, replyTo) {
   const g = state.groups[gid];
   if (!g) return;
@@ -342,8 +369,12 @@ async function sendToGroup(gid, kind, body, media, replyTo) {
     });
     anyPeer = anyPeer || ok;
   }
-  g.messages.push({ id: msgId, mine: true, kind, body: body || '', media, replyTo, ts: Date.now(), status: 'sent' });
+  // Onestà sullo stato: se ci sono destinatari ma il socket non ha inviato a nessuno (relay
+  // disconnesso), il messaggio NON è partito → status 'failed', niente falsa spunta ✓.
+  const status = (others.length > 0 && !anyPeer) ? 'failed' : 'sent';
+  g.messages.push({ id: msgId, mine: true, kind, body: body || '', media, replyTo, ts: Date.now(), status });
   if (others.length === 0) toast('Sei solo nel gruppo: invita qualcuno con ➕ per far arrivare i messaggi.');
+  else if (!anyPeer) toast('Relay non connesso: messaggio non inviato (riprova quando torni online).');
   persistGroups(); render();
 }
 
@@ -351,12 +382,18 @@ function renderGroupChat(gid) {
   const g = state.groups[gid];
   const chat = el('div', { class: 'chat' });
   if (!g) { chat.appendChild(el('div', { class: 'empty' }, 'Gruppo non trovato')); return chat; }
+  sendGroupReadReceipts(gid); // conferme di lettura per i messaggi ricevuti (fire-and-forget)
   chat.appendChild(el('div', { class: 'chat-header' }, [
     el('div', { class: 'name-col' }, [
       el('div', { class: 'name-row' }, [el('div', { class: 'name' }, '# ' + g.name)]),
       el('div', { class: 'sub' }, '🔒 GRUPPO E2E · SENDER KEYS · ' + (g.memberIds ? g.memberIds.length : 0) + ' membri'),
     ]),
     el('div', { class: 'call-buttons' }, [
+      // Chiamate solo nelle chat 1:1 (2 membri): il path di gruppo è l'unico reale.
+      ...((g.memberIds && g.memberIds.length <= 2) ? [
+        el('button', { class: 'call-hdr-btn', title: 'Chiamata audio', onClick: () => startGroupCall(gid, false) }, '📞'),
+        el('button', { class: 'call-hdr-btn', title: 'Videochiamata', onClick: () => startGroupCall(gid, true) }, '📹'),
+      ] : []),
       el('button', { class: 'call-hdr-btn', title: 'Verifica identità', onClick: () => verifyGroupFlow(gid) }, '🔒'),
       el('button', { class: 'call-hdr-btn', title: 'Invita nel gruppo', onClick: () => inviteToGroup(gid) }, '➕'),
     ]),
@@ -370,7 +407,8 @@ function renderGroupChat(gid) {
     if (m.body && m.kind !== 'voice' && m.kind !== 'file') b.appendChild(el('div', { class: 'bubble-text' }, m.body));
     b.appendChild(el('div', { class: 'bubble-meta' }, [
       el('span', { class: 'ts' }, new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
-      m.mine ? el('span', { class: 'tick ' + (m.status || 'sent') }, m.status === 'delivered' ? '✓✓' : '✓') : null,
+      m.mine ? el('span', { class: 'tick ' + (m.status || 'sent'), style: m.status === 'read' ? 'color:#53BDEB;' : m.status === 'failed' ? 'color:#EA4335;' : '' },
+        m.status === 'failed' ? '⚠' : (m.status === 'delivered' || m.status === 'read') ? '✓✓' : '✓') : null,
     ]));
     msgs.appendChild(b);
   }
@@ -403,6 +441,8 @@ function render() {
   const titlebar = el('div', { class: 'titlebar' }, [
     el('span', { class: 'brand' }, 'II PRIVATE MESSENGER'),
     state.authed ? el('div', { class: 'titlebar-actions' }, [
+      el('span', { id: 'conn-state', class: 'conn-state', style: 'font-size:12px;margin-right:10px;color:' + (state.connState === 'connected' ? '#1f8a4c' : '#c98a00') + ';' },
+        state.connState === 'connected' ? '● online' : state.connState === 'reconnecting' ? '● riconnessione…' : '● offline'),
       el('button', { class: 'icon-btn', onClick: () => { state.view = state.view === 'pairing' ? 'chat' : 'pairing'; render(); } }, state.view === 'pairing' ? 'CHAT' : 'LINK PHONE'),
     ]) : null,
   ]);
@@ -861,6 +901,7 @@ function toast(text, kind) {
 }
 
 function setConnState(s) {
+  state.connState = s;
   const el = document.getElementById('conn-state');
   if (el) {
     el.textContent = s === 'connected' ? '● online' : s === 'reconnecting' ? '● riconnessione…' : '● offline';
@@ -881,6 +922,22 @@ iimsg.socket.onMessage(async (ev) => {
       auth_failed: 'Autenticazione al relay fallita: esci e rientra.',
     };
     toast(map[ev.error] || ('Errore relay: ' + ev.error));
+    return;
+  }
+  // Conferme di consegna/lettura → spunte ✓✓ (grigie=consegnato, blu=letto).
+  if ((ev.type === 'delivery_receipt' || ev.type === 'read_receipt') && ev.messageId) {
+    const status = ev.type === 'read_receipt' ? 'read' : 'delivered';
+    const rank = { sent: 1, delivered: 2, read: 3 };
+    const bump = (arr) => { if (!arr) return; for (const m of arr) {
+      if (!m.mine) continue;
+      // i messageId di gruppo hanno suffisso -<peer>: il receipt combacia col prefisso base
+      if (m.id === ev.messageId || ev.messageId === m.id || ev.messageId.startsWith(m.id + '-')) {
+        if ((rank[status] || 0) > (rank[m.status] || 0)) m.status = status;
+      }
+    } };
+    for (const gid in state.groups) bump(state.groups[gid].messages);
+    for (const pid in state.chats) bump(state.chats[pid].messages);
+    persistGroups(); render();
     return;
   }
   // Richiesta di contatto "seamless": qualcuno ci ha trovati col codice e ci invita.
@@ -934,10 +991,12 @@ iimsg.socket.onMessage(async (ev) => {
         else if (envelope.gname && (!state.groups[gid].name || state.groups[gid].name.startsWith('Gruppo '))) state.groups[gid].name = envelope.gname;
         state.groups[gid].messages.push({
           id: envelope.clientMsgId ?? ev.messageId ?? (Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
-          mine: false, kind: envelope.kind, body: envelope.body ?? '', replyTo: envelope.replyTo, media: envelope.media,
+          mine: false, from: ev.from, kind: envelope.kind, body: envelope.body ?? '', replyTo: envelope.replyTo, media: envelope.media,
           ts: Date.now(), status: 'delivered', expiresAt: envelope.ttlMs ? Date.now() + envelope.ttlMs : undefined,
         });
         persistGroups(); render();
+        // Se sto guardando questo gruppo, invia subito le conferme di lettura (spunte blu).
+        if (state.activeGroup === gid) sendGroupReadReceipts(gid);
         return;
       }
 
