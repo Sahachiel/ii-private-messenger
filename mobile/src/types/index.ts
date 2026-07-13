@@ -185,7 +185,7 @@ export interface AuthResponse {
 // Matches backend/relay/src/types.ts discriminated union.
 export type RelayMessage =
   | { type: 'auth'; token: string }
-  | { type: 'send_message'; messageId: string; to: string; conversationId: string; ciphertext: string; messageType?: string; timestamp?: number; gid?: string; epoch?: number; cap?: string }
+  | { type: 'send_message'; messageId: string; to: string; conversationId: string; ciphertext: string; messageType?: string; timestamp?: number; gid?: string; epoch?: number; cap?: string; scap?: string; sealed?: boolean }
   | { type: 'call_offer'; callId: string; to: string; callType: CallType; sdp: string }
   | { type: 'call_answer'; callId: string; to: string; sdp: string }
   | { type: 'ice_candidate'; callId: string; to: string; candidate: any }

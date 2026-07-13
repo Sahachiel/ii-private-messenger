@@ -38,7 +38,7 @@ export interface SenderKeyDistribution { sid: string; e: number; ck: string; i: 
 
 interface OwnChain { ck: string; i: number; spk: string; ssk: string }
 interface PeerChain { ck: string; i: number; spk: string; skipped: Record<number, string> }
-interface SKState { own: Record<string, OwnChain>; peer: Record<string, PeerChain> }
+interface SKState { own: Record<string, OwnChain>; peer: Record<string, PeerChain>; senderMap?: Record<string, string> }
 
 const skStore = new Store<{ state?: SKState }>({ name: 'sender-keys' });
 const cfg = new Store<{ userId?: string }>(); // default 'config', condivide userId con api.ts
@@ -57,6 +57,12 @@ class SenderKeyManager {
   private ownKey(gid: string, e: number): string { return `${gid}:${e}`; }
   private peerKey(gid: string, e: number, sid: string): string { return `${gid}:${e}:${sid}`; }
 
+  // SEALED SENDER — id mittente OPACO (identico a mobile): il relay non impara l'identità.
+  opaqueSid(gid: string, uid: string): string {
+    return b64.enc(nacl.hash(concat(util.decodeUTF8(`${gid}:sender:`), util.decodeUTF8(uid))).slice(0, 16));
+  }
+  resolveSender(sid: string): string | undefined { return this.store.senderMap?.[sid]; }
+
   private getOwn(gid: string, epoch: number): OwnChain {
     const k = this.ownKey(gid, epoch);
     let own = this.store.own[k];
@@ -72,12 +78,17 @@ class SenderKeyManager {
 
   myDistribution(gid: string, epoch: number): SenderKeyDistribution {
     const own = this.getOwn(gid, epoch);
-    return { sid: this.myId(), e: epoch, ck: own.ck, i: own.i, spk: own.spk };
+    return { sid: this.opaqueSid(gid, this.myId()), e: epoch, ck: own.ck, i: own.i, spk: own.spk };
   }
 
-  processDistribution(gid: string, d: SenderKeyDistribution): void {
+  processDistribution(gid: string, d: SenderKeyDistribution, realSender: string): boolean {
+    // ANTI-POISONING: il sid opaco deve derivare dal mittente reale del canale pairwise.
+    if (!realSender || d.sid !== this.opaqueSid(gid, realSender)) return false;
     this.store.peer[this.peerKey(gid, d.e, d.sid)] = { ck: d.ck, i: d.i, spk: d.spk, skipped: {} };
+    if (!this.store.senderMap) this.store.senderMap = {};
+    this.store.senderMap[d.sid] = realSender;
     this.save();
+    return true;
   }
 
   hasPeer(gid: string, epoch: number, sid: string): boolean {
@@ -96,7 +107,7 @@ class SenderKeyManager {
     own.ck = b64.enc(chain);
     own.i = iter + 1;
     this.save();
-    return { sid: this.myId(), e: epoch, i: iter, n: b64.enc(nonce), c: b64.enc(ct), s: b64.enc(sig) };
+    return { sid: this.opaqueSid(gid, this.myId()), e: epoch, i: iter, n: b64.enc(nonce), c: b64.enc(ct), s: b64.enc(sig) };
   }
 
   decryptGroup(gid: string, m: SenderKeyMessage): string {
@@ -154,7 +165,9 @@ export const senderKeys = new SenderKeyManager();
 
 export function registerSenderKeysIpc(ipc: IpcMain): void {
   ipc.handle('senderkeys.myDistribution', async (_e, gid: string, epoch: number) => senderKeys.myDistribution(gid, epoch));
-  ipc.handle('senderkeys.processDistribution', async (_e, gid: string, d: SenderKeyDistribution) => { senderKeys.processDistribution(gid, d); return true; });
+  ipc.handle('senderkeys.processDistribution', async (_e, gid: string, d: SenderKeyDistribution, realSender: string) => senderKeys.processDistribution(gid, d, realSender));
+  ipc.handle('senderkeys.resolveSender', async (_e, sid: string) => senderKeys.resolveSender(sid) ?? null);
+  ipc.handle('senderkeys.opaqueSid', async (_e, gid: string, uid: string) => senderKeys.opaqueSid(gid, uid));
   ipc.handle('senderkeys.hasPeer', async (_e, gid: string, epoch: number, sid: string) => senderKeys.hasPeer(gid, epoch, sid));
   ipc.handle('senderkeys.encryptGroup', async (_e, gid: string, epoch: number, plaintext: string) => senderKeys.encryptGroup(gid, epoch, plaintext));
   ipc.handle('senderkeys.decryptGroup', async (_e, gid: string, m: SenderKeyMessage) => senderKeys.decryptGroup(gid, m));

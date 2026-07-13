@@ -326,10 +326,10 @@ async function sendToGroup(gid, kind, body, media, replyTo) {
   if (!g) return;
   const myId = state.me.userId;
   const msgId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  let cap, epoch, others;
+  let cap, scap, epoch, others;
   try {
     const c = await iimsg.groups.capability(gid);
-    cap = c.cap; epoch = c.epoch;
+    cap = c.cap; scap = c.scap; epoch = c.epoch;
     const members = await iimsg.groups.members(gid);
     g.memberIds = members.map((m) => m.user_id);
     g.epoch = epoch;
@@ -362,11 +362,10 @@ async function sendToGroup(gid, kind, body, media, replyTo) {
   const ciphertext = JSON.stringify({ gsk: skm });
   let anyPeer = false;
   for (const peer of others) {
-    const ok = await iimsg.socket.send({
-      type: 'send_message', messageId: `${msgId}-${peer}`, to: peer,
-      conversationId: gid, gid, epoch, cap,
-      ciphertext, messageType: kind, timestamp: Date.now(),
-    });
+    // SEALED SENDER: se il backend fornisce lo scap, invia con la capability ANONIMA + sealed=true
+    // (il relay non impara il mittente); fallback alla cap legata all'uid se scap assente.
+    const base = { type: 'send_message', messageId: `${msgId}-${peer}`, to: peer, conversationId: gid, gid, epoch, ciphertext, messageType: kind, timestamp: Date.now() };
+    const ok = await iimsg.socket.send(scap ? { ...base, scap, sealed: true } : { ...base, cap });
     anyPeer = anyPeer || ok;
   }
   // Onestà sullo stato: se ci sono destinatari ma il socket non ha inviato a nessuno (relay
@@ -970,9 +969,10 @@ iimsg.socket.onMessage(async (ev) => {
         try {
           const distPlain = await iimsg.crypto.decrypt(ev.from, outer.gskd.ciphertext);
           const dist = JSON.parse(distPlain);
-          // ANTI-POISONING: accetta solo se il mittente dichiarato (sid) coincide con args.from.
-          if (dist && dist.sid === ev.from && typeof dist.e === 'number' && typeof dist.ck === 'string' && typeof dist.spk === 'string') {
-            await iimsg.senderKeys.processDistribution(gid, dist);
+          // ANTI-POISONING (sealed sender): il sid è OPACO; processDistribution accetta solo se
+          // deriva davvero da ev.from (mittente autenticato dal canale pairwise) e mappa opaqueSid->uid.
+          if (dist && typeof dist.sid === 'string' && typeof dist.e === 'number' && typeof dist.ck === 'string' && typeof dist.spk === 'string') {
+            await iimsg.senderKeys.processDistribution(gid, dist, ev.from);
           }
         } catch {}
         return;
@@ -987,11 +987,14 @@ iimsg.socket.onMessage(async (ev) => {
         let plain;
         try { plain = await iimsg.senderKeys.decryptGroup(gid, gk); } catch (e) { console.error('group decrypt', e); return; }
         const envelope = decodeEnvelope(plain);
+        // SEALED SENDER: il relay può aver sigillato ev.from ('sealed'); il mittente vero si ricava
+        // dal sid opaco via la mappa appresa dalla distribution.
+        const realFrom = (await iimsg.senderKeys.resolveSender(gk.sid)) || ev.from;
         if (!state.groups[gid]) state.groups[gid] = { id: gid, name: envelope.gname || ('Gruppo ' + gid.slice(0, 6)), epoch: ev.epoch || 0, memberIds: [], messages: [] };
         else if (envelope.gname && (!state.groups[gid].name || state.groups[gid].name.startsWith('Gruppo '))) state.groups[gid].name = envelope.gname;
         state.groups[gid].messages.push({
           id: envelope.clientMsgId ?? ev.messageId ?? (Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
-          mine: false, from: ev.from, kind: envelope.kind, body: envelope.body ?? '', replyTo: envelope.replyTo, media: envelope.media,
+          mine: false, from: realFrom, kind: envelope.kind, body: envelope.body ?? '', replyTo: envelope.replyTo, media: envelope.media,
           ts: Date.now(), status: 'delivered', expiresAt: envelope.ttlMs ? Date.now() + envelope.ttlMs : undefined,
         });
         persistGroups(); render();

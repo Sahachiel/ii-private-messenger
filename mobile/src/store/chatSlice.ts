@@ -153,12 +153,11 @@ export const decryptIncoming = createAsyncThunk(
       try {
         const distPlain = await signal.decrypt(args.from, 1, raw0.gskd);
         const dist = JSON.parse(distPlain);
-        // ANTI-POISONING (fix audit): la distribution è autenticata dal canale pairwise
-        // (signal.decrypt prova che viene davvero da args.from). Accettala SOLO se il mittente
-        // dichiarato (sid) coincide con args.from e la forma è valida → un membro non può
-        // avvelenare la sender-chain di un ALTRO membro iniettando una distribution falsa.
-        if (dist && dist.sid === args.from && typeof dist.e === 'number' && typeof dist.ck === 'string' && typeof dist.spk === 'string') {
-          senderKeys.processDistribution(gid, dist);
+        // ANTI-POISONING: la distribution è autenticata dal canale pairwise (signal.decrypt prova
+        // che viene da args.from). Con sealed sender il sid è OPACO: processDistribution accetta solo
+        // se il sid deriva davvero da args.from e mappa opaqueSid→mittente reale (per la resolveSender).
+        if (dist && typeof dist.sid === 'string' && typeof dist.e === 'number' && typeof dist.ck === 'string' && typeof dist.spk === 'string') {
+          senderKeys.processDistribution(gid, dist, args.from);
         }
       } catch { /* drop */ }
       return empty;
@@ -183,7 +182,10 @@ export const decryptIncoming = createAsyncThunk(
       try { plain = senderKeys.decryptGroup(gid, g); } catch { return empty; }
       const envelope = decodeEnvelope(plain);
       try { if (envelope.body) await mtd.scanMessage(envelope.body); } catch {}
-      return { from: args.from, envelope, messageId: args.messageId, peerState, peerScore, peerDigest, conversationId: gid };
+      // SEALED SENDER: il relay può aver sigillato args.from ('sealed'); il mittente vero si ricava
+      // dalla mappa opaqueSid→uid appresa dalla distribution pairwise.
+      const realFrom = senderKeys.resolveSender(g.sid) ?? args.from;
+      return { from: realFrom, envelope, messageId: args.messageId, peerState, peerScore, peerDigest, conversationId: gid };
     }
 
     // (3) Canale 1:1 pairwise (esistente).

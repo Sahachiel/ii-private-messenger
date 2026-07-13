@@ -35,7 +35,9 @@ const api = {
   },
   senderKeys: {
     myDistribution: (gid: string, epoch: number) => ipcRenderer.invoke('senderkeys.myDistribution', gid, epoch),
-    processDistribution: (gid: string, d: unknown) => ipcRenderer.invoke('senderkeys.processDistribution', gid, d),
+    processDistribution: (gid: string, d: unknown, realSender: string) => ipcRenderer.invoke('senderkeys.processDistribution', gid, d, realSender),
+    resolveSender: (sid: string) => ipcRenderer.invoke('senderkeys.resolveSender', sid),
+    opaqueSid: (gid: string, uid: string) => ipcRenderer.invoke('senderkeys.opaqueSid', gid, uid),
     hasPeer: (gid: string, epoch: number, sid: string) => ipcRenderer.invoke('senderkeys.hasPeer', gid, epoch, sid),
     encryptGroup: (gid: string, epoch: number, plaintext: string) => ipcRenderer.invoke('senderkeys.encryptGroup', gid, epoch, plaintext),
     decryptGroup: (gid: string, m: unknown) => ipcRenderer.invoke('senderkeys.decryptGroup', gid, m),

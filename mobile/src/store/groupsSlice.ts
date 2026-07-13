@@ -94,11 +94,12 @@ export const sendToGroup = createAsyncThunk(
       replyTo: args.replyTo, media: args.media, expiresAt, groupId: gid,
     } as Message));
 
-    // Capability firmata + membri attuali dal backend (epoch autoritativo).
-    let cap: string; let epoch: number; let others: string[];
+    // Capability firmata + membri attuali dal backend (epoch autoritativo). scap = capability
+    // ANONIMA per il sealed sender (se il backend la fornisce).
+    let cap: string; let scap: string | undefined; let epoch: number; let others: string[];
     try {
       const c = await groupsApi.capability(gid);
-      cap = c.cap; epoch = c.epoch;
+      cap = c.cap; scap = c.scap; epoch = c.epoch;
       const members = await groupsApi.members(gid);
       others = members.map((m) => m.user_id).filter((u) => u !== myId);
     } catch {
@@ -145,12 +146,12 @@ export const sendToGroup = createAsyncThunk(
     };
     const skm = senderKeys.encryptGroup(gid, epoch, encodeEnvelope(env));
     const ciphertext = JSON.stringify({ gsk: skm, attestation, senderSignPub });
+    // SEALED SENDER: se il backend fornisce lo scap, invia il messaggio con la capability ANONIMA
+    // + sealed=true → il relay non impara chi è il mittente (l'sid nel payload è opaco). Fallback
+    // al percorso classico (cap legata all'uid) se lo scap non è disponibile (backend non aggiornato).
     for (const peer of others) {
-      socket.send({
-        type: 'send_message', messageId: `${msgId}-${peer}`, to: peer,
-        conversationId: gid, gid, epoch, cap,
-        ciphertext, messageType: kind, timestamp: Date.now(),
-      });
+      const base = { type: 'send_message' as const, messageId: `${msgId}-${peer}`, to: peer, conversationId: gid, gid, epoch, ciphertext, messageType: kind, timestamp: Date.now() };
+      socket.send(scap ? { ...base, scap, sealed: true } as any : { ...base, cap });
     }
     return { msgId };
   },

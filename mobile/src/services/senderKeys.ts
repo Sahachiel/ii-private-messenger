@@ -58,7 +58,8 @@ interface PeerChain { ck: string; i: number; spk: string; skipped: Record<number
 
 interface Store {
   own: Record<string, OwnChain>;        // key: gid:epoch
-  peer: Record<string, PeerChain>;      // key: gid:epoch:senderId
+  peer: Record<string, PeerChain>;      // key: gid:epoch:opaqueSid
+  senderMap?: Record<string, string>;   // opaqueSid → uid reale (solo lato client; MAI sul server)
 }
 
 class SenderKeyManager {
@@ -77,6 +78,19 @@ class SenderKeyManager {
   private ownKey(gid: string, e: number): string { return `${gid}:${e}`; }
   private peerKey(gid: string, e: number, sid: string): string { return `${gid}:${e}:${sid}`; }
 
+  /**
+   * SEALED SENDER: id mittente OPACO (16B da SHA-512(gid||uid)) usato al posto dell'uid nei sender-key.
+   * Deterministico → il ricevente, che conosce il mittente reale dal canale pairwise (gskd), verifica
+   * che il sid opaco derivi da lui e mappa opaqueSid→uid. Il relay vede solo l'id opaco, non l'identità.
+   */
+  opaqueSid(gid: string, uid: string): string {
+    return b64.enc(nacl.hash(concat(util.decodeUTF8(`${gid}:sender:`), util.decodeUTF8(uid))).slice(0, 16));
+  }
+  /** Risolve un sid opaco al mittente reale (mappa appresa dalla distribution pairwise). */
+  resolveSender(sid: string): string | undefined {
+    return this.store.senderMap?.[sid];
+  }
+
   private getOwn(gid: string, epoch: number): OwnChain {
     const k = this.ownKey(gid, epoch);
     let own = this.store.own[k];
@@ -93,12 +107,22 @@ class SenderKeyManager {
   /** Distribution da inviare ai membri (chiave corrente → niente storia pre-distribuzione). */
   myDistribution(gid: string, epoch: number): SenderKeyDistribution {
     const own = this.getOwn(gid, epoch);
-    return { sid: this.myId(), e: epoch, ck: own.ck, i: own.i, spk: own.spk };
+    return { sid: this.opaqueSid(gid, this.myId()), e: epoch, ck: own.ck, i: own.i, spk: own.spk };
   }
 
-  processDistribution(gid: string, d: SenderKeyDistribution): void {
+  /**
+   * Registra la sender-chain di un peer. `realSender` = mittente autenticato dal canale pairwise.
+   * ANTI-POISONING: accetta solo se il sid opaco dichiarato deriva DAVVERO da realSender → un membro
+   * non può registrare una chain spacciandosi per un altro (dovrebbe produrre H(gid||altro) partendo
+   * dalla propria identità pairwise). Ritorna false se non valida.
+   */
+  processDistribution(gid: string, d: SenderKeyDistribution, realSender: string): boolean {
+    if (!realSender || d.sid !== this.opaqueSid(gid, realSender)) return false;
     this.store.peer[this.peerKey(gid, d.e, d.sid)] = { ck: d.ck, i: d.i, spk: d.spk, skipped: {} };
+    if (!this.store.senderMap) this.store.senderMap = {};
+    this.store.senderMap[d.sid] = realSender;
     this.save();
+    return true;
   }
 
   hasPeer(gid: string, epoch: number, sid: string): boolean {
@@ -118,7 +142,7 @@ class SenderKeyManager {
     own.ck = b64.enc(chain);
     own.i = iter + 1;
     this.save();
-    return { sid: this.myId(), e: epoch, i: iter, n: b64.enc(nonce), c: b64.enc(ct), s: b64.enc(sig) };
+    return { sid: this.opaqueSid(gid, this.myId()), e: epoch, i: iter, n: b64.enc(nonce), c: b64.enc(ct), s: b64.enc(sig) };
   }
 
   decryptGroup(gid: string, m: SenderKeyMessage): string {
