@@ -40,7 +40,18 @@ export const createGroup = createAsyncThunk(
   async (args: { name: string; memberIds?: string[]; iconUrl?: string }, { rejectWithValue }) => {
     const myId = appKv.getString('auth.userId')!;
     try {
-      const res = await groupsApi.create(); // ID server (UUID) + epoch; membri si aggiungono via invito
+      const res = await groupsApi.create(); // ID server (UUID) + epoch
+      // Invita DAVVERO i membri selezionati: per ciascuno un invito vincolato monouso senza
+      // approvazione, recapitato seamless via relay (contact_invite col nome del gruppo). Chi
+      // accetta entra. Prima memberIds era ignorato (checkbox senza effetto — finding audit).
+      const others = (args.memberIds ?? []).filter((id) => id && id !== myId);
+      const myName = appKv.getString('auth.displayName') ?? 'Qualcuno';
+      for (const uid of others) {
+        try {
+          const inv = await groupsApi.invite(res.id, { bound_user_id: uid, requires_approval: false, max_uses: 1, ttl_seconds: 7 * 24 * 3600 });
+          socket.send({ type: 'contact_invite', to: uid, token: inv.token, fromName: args.name || myName } as any);
+        } catch { /* un invito fallito non blocca la creazione */ }
+      }
       const group: Group = {
         id: res.id, name: args.name, iconUrl: args.iconUrl,
         memberIds: [myId], adminIds: [myId],

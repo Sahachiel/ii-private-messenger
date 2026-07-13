@@ -4,7 +4,7 @@ import { Input } from '@components/Input';
 import { useAppDispatch, useAppSelector } from '@store/index';
 import { upsertConversation } from '@store/chatSlice';
 import { upsertGroup } from '@store/groupsSlice';
-import { usersApi, groupsApi } from '@services/api';
+import { usersApi, groupsApi, contactsApi } from '@services/api';
 import { socket } from '@services/socket';
 import { appKv } from '@services/keychain';
 import { theme } from '@utils/theme';
@@ -64,6 +64,9 @@ export const ContactsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       // Recapito "seamless" dell'invito al destinatario (instradato per `to`, senza gid).
       const myName = me?.displayName ?? appKv.getString('auth.displayName') ?? 'Qualcuno';
       socket.send({ type: 'contact_invite', to: found.id, token: inv.token, fromName: myName, fromCode: myCode });
+
+      // Registra il contatto nella rubrica (grafo contatti reale → stories/notifiche lo usano).
+      contactsApi.add(found.id).catch(() => {});
 
       // Stato locale + apertura chat.
       const nm = found.displayName || 'Contatto';

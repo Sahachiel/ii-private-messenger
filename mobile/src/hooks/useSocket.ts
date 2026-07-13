@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Alert, AppState } from 'react-native';
 import { socket } from '@services/socket';
-import { groupsApi } from '@services/api';
+import { groupsApi, contactsApi } from '@services/api';
 import { useAppDispatch, useAppSelector } from '@store/index';
 import { decryptIncoming, updateMessageStatus, setTyping, addMessage, upsertConversation } from '@store/chatSlice';
 import { receiveCall, answerCall, addIceCandidate, setRemoteSDP, endCall } from '@store/callSlice';
@@ -115,6 +115,8 @@ export function useSocket(): void {
                   try { members = (await groupsApi.members(gid)).map((m) => m.user_id); } catch { /* placeholder */ }
                   dispatch(upsertGroup({ id: gid, name: nm, memberIds: members, adminIds: [], createdAt: Date.now(), createdBy: ev.from ?? '' }));
                   dispatch(upsertConversation({ id: gid, peerId: gid, peerName: nm, isGroup: true, unreadCount: 0, muted: false, archived: false, updatedAt: Date.now() }));
+                  // Registra chi ci ha aggiunti nella rubrica (grafo contatti reale, bidirezionale).
+                  if (ev.from) contactsApi.add(ev.from).catch(() => {});
                   navigate('Chat', { conversationId: gid, peerId: gid, peerName: nm, isGroup: true });
                 } catch { /* invito scaduto/non valido */ }
               } },
