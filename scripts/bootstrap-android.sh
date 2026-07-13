@@ -141,6 +141,16 @@ if ! grep -q "QUERY_ALL_PACKAGES" "$MAN"; then
   echo "  ~ AndroidManifest: QUERY_ALL_PACKAGES"
 fi
 
+# 8a-bis) SOVRANITÀ: rimuove i permessi Google iniettati da manifest transitivi (FCM/C2DM +
+# Play install-referrer) via manifest-merger. Serve il namespace tools.
+if ! grep -q 'xmlns:tools' "$MAN"; then
+  sed -i 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android"|<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"|' "$MAN" || true
+fi
+if ! grep -q 'c2dm.permission.RECEIVE' "$MAN"; then
+  sed -i 's|<application|<uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" tools:node="remove"/>\n    <uses-permission android:name="com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE" tools:node="remove"/>\n    <application|' "$MAN" || true
+  echo "  ~ AndroidManifest: rimossi permessi Google (sovranità)"
+fi
+
 # 8b) Deep link iimsg://join?t=<token> — intent-filter VIEW sul MainActivity (link invito reale)
 if ! grep -q 'android:scheme="iimsg"' "$MAN"; then
   sed -i 's|<category android:name="android.intent.category.LAUNCHER" />|<category android:name="android.intent.category.LAUNCHER" />\n        </intent-filter>\n        <intent-filter>\n            <action android:name="android.intent.action.VIEW" />\n            <category android:name="android.intent.category.DEFAULT" />\n            <category android:name="android.intent.category.BROWSABLE" />\n            <data android:scheme="iimsg" />|' "$MAN" || true
