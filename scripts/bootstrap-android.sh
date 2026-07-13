@@ -66,8 +66,14 @@ APPGRADLE="$ANDROID/app/build.gradle"
 if [ -f "$APPGRADLE" ]; then
   sed -i "s/applicationId \"com.helloworld\"/applicationId \"$PKG\"/" "$APPGRADLE" || true
   sed -i "s/namespace \"com.helloworld\"/namespace \"$PKG\"/" "$APPGRADLE" || true
-  # vision-camera richiede minSdk 26
+  # il progetto richiede minSdk 26 (react-native-webrtc / ssl-pinning)
   sed -i "s/minSdkVersion rootProject.ext.minSdkVersion/minSdkVersion 26/" "$APPGRADLE" || true
+  # SOVRANITÀ: escludi play-services-iid (tirato da react-native-device-info solo per getInstanceId,
+  # non usato dall'app; accesso via reflection → l'exclude compila) → APK senza Google Play Services.
+  if ! grep -q "play-services-iid" "$APPGRADLE"; then
+    printf '\nconfigurations.all {\n    exclude group: "com.google.android.gms", module: "play-services-iid"\n}\n' >> "$APPGRADLE"
+    echo "  ~ app/build.gradle: escluso play-services-iid (sovranità)"
+  fi
 fi
 # minSdk anche nel root build.gradle ext
 ROOTGRADLE="$ANDROID/build.gradle"

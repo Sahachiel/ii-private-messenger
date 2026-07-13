@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, SafeAreaView, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, Pressable, SafeAreaView, Alert, Linking, ActivityIndicator } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { useAppSelector } from '@store/index';
 import { KC } from '@services/keychain';
 import { randomBytes, b64 } from '@utils/crypto';
 import { theme } from '@utils/theme';
+import { scanQrViaPhoto } from '@utils/qrscan';
 import { QRIcon, ScanIcon } from '@components/Icons';
 import HapticFeedback from 'react-native-haptic-feedback';
 
@@ -41,10 +41,8 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const user = useAppSelector((s) => s.auth.user);
   const [mode, setMode] = useState<'show' | 'scan'>('show');
   const [fp, setFp] = useState<string>('');
-  const [hasPerm, setHasPerm] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState<PairingPayload | null>(null);
-
-  const device = useCameraDevice('back');
 
   useEffect(() => { myFingerprint().then(setFp); }, []);
 
@@ -62,25 +60,20 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const liveNonce = useMemo(() => ({ ...payload, nonce: randomNonce(), issuedAt: Date.now() }), [refreshTick, payload]);
   const qrData = JSON.stringify(liveNonce);
 
-  const onScanRequest = async (): Promise<void> => {
+  // Scansione SOVRANA one-shot (nessun Google): scatta una foto del QR e la decodifica in JS.
+  const runScan = async (): Promise<void> => {
+    if (scanning) return;
+    setScanning(true);
     try {
-      const p = await Camera.requestCameraPermission();
-      setHasPerm(p === 'granted');
-      if (p !== 'granted') {
-        Alert.alert('Camera denied', 'Open settings to enable the camera.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Settings', onPress: () => Linking.openSettings() },
+      const raw = await scanQrViaPhoto();
+      if (raw === null) {
+        Alert.alert('Nessun QR rilevato', 'Non ho trovato un QR nella foto (o manca il permesso fotocamera). Riprova inquadrando bene il codice.', [
+          { text: 'Riprova', onPress: () => { void runScan(); } },
+          { text: 'Impostazioni', onPress: () => Linking.openSettings() },
+          { text: 'Annulla', style: 'cancel' },
         ]);
-      } else { setMode('scan'); }
-    } catch (e: any) { Alert.alert('Camera error', String(e)); }
-  };
-
-  const codeScanner = useCodeScanner({
-    codeTypes: ['qr'],
-    onCodeScanned: (codes) => {
-      if (!codes.length || scanned) return;
-      const raw = codes[0].value;
-      if (!raw) return;
+        return;
+      }
       try {
         const parsed = JSON.parse(raw) as PairingPayload;
         if (parsed.appId !== 'iimsg' || parsed.v !== 1) throw new Error('Non è un QR di II Private Messenger');
@@ -89,8 +82,10 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       } catch (e: any) {
         Alert.alert('QR non valido', e?.message ?? 'formato non riconosciuto');
       }
-    },
-  });
+    } finally { setScanning(false); }
+  };
+
+  const onScanRequest = (): void => { setMode('scan'); setScanned(null); void runScan(); };
 
   const confirmPair = (): void => {
     if (!scanned) return;
@@ -145,17 +140,15 @@ export const QRPairingScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         </View>
       ) : (
         <View style={styles.scanWrap}>
-          {device && hasPerm ? (
-            <Camera style={StyleSheet.absoluteFill} device={device} isActive codeScanner={codeScanner} />
-          ) : (
-            <View style={styles.scanPlaceholder}>
-              <Text style={styles.helper}>Camera permission required</Text>
-              <Pressable onPress={onScanRequest} style={styles.refreshBtn}>
-                <Text style={styles.refreshLabel}>ENABLE CAMERA</Text>
-              </Pressable>
-            </View>
-          )}
-          <View pointerEvents="none" style={styles.viewfinder} />
+          <View style={styles.scanPlaceholder}>
+            {scanning ? <ActivityIndicator size="large" color={theme.accent} /> : <ScanIcon size={48} color={theme.accent} />}
+            <Text style={styles.helper}>
+              Inquadra il QR dell'altro dispositivo e scatta una foto: la decodifica avviene sul dispositivo, offline, senza Google.
+            </Text>
+            <Pressable onPress={runScan} disabled={scanning} style={[styles.refreshBtn, scanning && { opacity: 0.5 }]}>
+              <Text style={styles.refreshLabel}>{scanning ? 'DECODIFICA…' : 'SCATTA FOTO DEL QR'}</Text>
+            </Pressable>
+          </View>
           {scanned && (
             <View style={styles.scanResult}>
               <Text style={styles.scanResultName}>{scanned.username}</Text>

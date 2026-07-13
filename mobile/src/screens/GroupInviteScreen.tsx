@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, SafeAreaView, Alert, Linking, Share, ActivityIndicator } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { useAppDispatch } from '@store/index';
 import { groupsApi } from '@services/api';
 import { upsertGroup } from '@store/groupsSlice';
 import { upsertConversation } from '@store/chatSlice';
 import { appKv } from '@services/keychain';
 import { theme } from '@utils/theme';
+import { scanQrViaPhoto } from '@utils/qrscan';
 import { QRIcon, ScanIcon } from '@components/Icons';
 import HapticFeedback from 'react-native-haptic-feedback';
 
@@ -36,9 +36,8 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
   const [mode, setMode] = useState<'show' | 'scan'>(groupId ? 'show' : 'scan');
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hasPerm, setHasPerm] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [joining, setJoining] = useState(false);
-  const device = useCameraDevice('back');
 
   const genInvite = useCallback(async () => {
     if (!groupId) return;
@@ -59,19 +58,6 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
   const shareLink = async (): Promise<void> => {
     if (!deepLink) return;
     try { await Share.share({ message: `Unisciti al gruppo su II Private Messenger:\n${deepLink}` }); } catch { /* annullato */ }
-  };
-
-  const onScanRequest = async (): Promise<void> => {
-    try {
-      const p = await Camera.requestCameraPermission();
-      setHasPerm(p === 'granted');
-      if (p !== 'granted') {
-        Alert.alert('Camera negata', 'Abilita la fotocamera nelle impostazioni.', [
-          { text: 'Annulla', style: 'cancel' },
-          { text: 'Impostazioni', onPress: () => Linking.openSettings() },
-        ]);
-      } else { setMode('scan'); }
-    } catch (e: any) { Alert.alert('Errore camera', String(e)); }
   };
 
   const doJoin = useCallback(async (t: string, groupName?: string): Promise<void> => {
@@ -99,12 +85,20 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
     } finally { setJoining(false); }
   }, [joining, dispatch, navigation]);
 
-  const codeScanner = useCodeScanner({
-    codeTypes: ['qr'],
-    onCodeScanned: (codes) => {
-      if (!codes.length || joining) return;
-      const raw = codes[0]?.value;
-      if (!raw) return;
+  // Scansione SOVRANA one-shot (nessun Google): scatta una foto del QR e la decodifica in JS.
+  const runScan = useCallback(async (): Promise<void> => {
+    if (scanning || joining) return;
+    setScanning(true);
+    try {
+      const raw = await scanQrViaPhoto();
+      if (raw === null) {
+        Alert.alert('Nessun QR rilevato', 'Non ho trovato un QR nella foto (o manca il permesso fotocamera). Riprova inquadrando bene il codice.', [
+          { text: 'Riprova', onPress: () => { void runScan(); } },
+          { text: 'Impostazioni', onPress: () => Linking.openSettings() },
+          { text: 'Annulla', style: 'cancel' },
+        ]);
+        return;
+      }
       let parsed: GroupInviteQR;
       try { parsed = JSON.parse(raw); } catch { Alert.alert('QR non valido', 'Formato non riconosciuto.'); return; }
       // Validazione per-tipo RIGOROSA: solo inviti di gruppo, token ben formato.
@@ -114,8 +108,10 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
       }
       HapticFeedback.trigger('notificationSuccess', { enableVibrateFallback: true, ignoreAndroidSystemSettings: false });
       void doJoin(parsed.t, parsed.n);
-    },
-  });
+    } finally { setScanning(false); }
+  }, [scanning, joining, doJoin]);
+
+  const onScanRequest = (): void => { setMode('scan'); void runScan(); };
 
   return (
     <SafeAreaView style={styles.c}>
@@ -158,15 +154,15 @@ export const GroupInviteScreen: React.FC<{ navigation: any; route: any }> = ({ n
         </View>
       ) : (
         <View style={styles.scanWrap}>
-          {device && hasPerm ? (
-            <Camera style={StyleSheet.absoluteFill} device={device} isActive codeScanner={codeScanner} />
-          ) : (
-            <View style={styles.scanPlaceholder}>
-              <Text style={styles.helper}>Serve il permesso fotocamera</Text>
-              <Pressable onPress={onScanRequest} style={styles.refreshBtn}><Text style={styles.refreshLabel}>ABILITA CAMERA</Text></Pressable>
-            </View>
-          )}
-          <View pointerEvents="none" style={styles.viewfinder} />
+          <View style={styles.scanPlaceholder}>
+            {scanning ? <ActivityIndicator size="large" color={theme.accent} /> : <ScanIcon size={48} color={theme.accent} />}
+            <Text style={styles.helper}>
+              Inquadra il QR dell'invito e scatta una foto: la decodifica avviene sul dispositivo, offline, senza Google.
+            </Text>
+            <Pressable onPress={runScan} disabled={scanning || joining} style={[styles.refreshBtn, (scanning || joining) && { opacity: 0.5 }]}>
+              <Text style={styles.refreshLabel}>{scanning ? 'DECODIFICA…' : 'SCATTA FOTO DEL QR'}</Text>
+            </Pressable>
+          </View>
           {joining && (
             <View style={styles.scanResult}><ActivityIndicator color={theme.accent} /><Text style={styles.helper}>Ingresso in corso…</Text></View>
           )}

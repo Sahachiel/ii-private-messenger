@@ -37,6 +37,9 @@ jobs:
             echo "Nessun google-services.json: push Firebase disattivate (build comunque OK)."
           fi
 
+      - name: Guard sovranità scan QR (nessun Google/MLKit/vision-camera)
+        run: bash scripts/verify-sovereign-scan.sh
+
       - name: Bootstrap Android boilerplate (da template RN 0.73.9)
         run: bash scripts/bootstrap-android.sh mobile
 

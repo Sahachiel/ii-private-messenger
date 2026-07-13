@@ -117,3 +117,11 @@ dependencies {
 }
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
+
+// SOVRANITÀ: react-native-device-info tira com.google.android.gms:play-services-iid (→ GoogleApiActivity,
+// gms.version) SOLO per getInstanceId(), API che questa app NON usa (solo getVersion/isEmulator). device-info
+// accede a InstanceID via reflection (Class.forName, con fallback UUID su ClassNotFoundException), quindi
+// escludere la dipendenza compila e non rompe nulla → APK senza NESSUN Google Play Services.
+configurations.all {
+    exclude group: 'com.google.android.gms', module: 'play-services-iid'
+}
