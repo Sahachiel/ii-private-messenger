@@ -19,14 +19,14 @@ export interface Contact extends User {
 
 export interface KeyBundle {
   identityPublicKey: string;
-  signedPreKey: { keyId: number; publicKey: string; signature: string };
+  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string };
   registrationId: number;
   oneTimePreKeys: { keyId: number; publicKey: string }[];
 }
 
 export interface RemoteKeyBundle {
   identityPublicKey: string;
-  signedPreKey: { keyId: number; publicKey: string; signature: string };
+  signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string };
   oneTimePreKey?: { keyId: number; publicKey: string };
   registrationId: number;
 }

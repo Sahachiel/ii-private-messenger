@@ -118,7 +118,7 @@ export const authApi = {
     username: string; displayName: string; password: string; phone?: string;
     countryCode: string;
     identityPublicKey: string;
-    signedPreKey: { keyId: number; publicKey: string; signature: string };
+    signedPreKey: { keyId: number; publicKey: string; signature: string; kemPublicKey?: string };
     registrationId: number;
     oneTimePreKeys: { keyId: number; publicKey: string }[];
     fcmToken?: string;
@@ -174,7 +174,7 @@ export const usersApi = {
     const spk = typeof w.signed_prekey === 'string' ? JSON.parse(w.signed_prekey) : w.signed_prekey;
     return {
       identityPublicKey: w.identity_public_key,
-      signedPreKey: { keyId: spk.keyId ?? spk.key_id, publicKey: spk.publicKey ?? spk.public_key, signature: spk.signature },
+      signedPreKey: { keyId: spk.keyId ?? spk.key_id, publicKey: spk.publicKey ?? spk.public_key, signature: spk.signature, kemPublicKey: spk.kemPublicKey },
       oneTimePreKey: w.one_time_prekey
         ? { keyId: w.one_time_prekey.key_id, publicKey: w.one_time_prekey.public_key }
         : undefined,

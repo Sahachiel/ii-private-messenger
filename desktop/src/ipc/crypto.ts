@@ -5,6 +5,7 @@ import util from 'tweetnacl-util';
 import keytar from 'keytar';
 import Store from 'electron-store';
 import { initAlice, initBob, drEncrypt, drDecrypt, DRSession, DRHeader } from './doubleRatchet';
+import { kemKeygen, kemEncapsulate, kemDecapsulate } from './pqkem';
 
 // Numero di sicurezza — DEVE restare in sync con mobile/src/utils/crypto.ts (stessa versione,
 // iterazioni, canonicalizzazione), altrimenti telefono e desktop mostrerebbero numeri diversi.
@@ -34,15 +35,25 @@ const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
 interface LocalIdentity { pub: string; priv: string; regId: number }
 interface SPK { pub: string; sec: string; keyId: number }
 
-type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string } };
+type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string }; kemPub?: string };
 const drStore = new Store<{
   spk?: SPK;
   sessions?: Record<string, DRSession>;
   pending?: Record<string, PendingBundle>;
   otpSecrets?: Record<string, string>; // keyId -> secretB64 (one-time prekey da consumare)
   otpNextId?: number;
+  kem?: { pub: string; sec: string };  // chiave ML-KEM-768 (post-quantum) del dispositivo
 }>({ name: 'dr-state' });
 const OTP_BATCH = 20;
+
+/** Chiave ML-KEM-768 stabile del dispositivo (post-quantum); il pubblico va nel bundle. */
+async function ensureKem(): Promise<{ pub: string; sec: string }> {
+  const existing = drStore.get('kem');
+  if (existing) return existing;
+  const kp = await kemKeygen();
+  drStore.set('kem', kp);
+  return kp;
+}
 
 let identityCache: { pub: Uint8Array; sec: Uint8Array; regId: number } | null = null;
 
@@ -101,7 +112,8 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     const signature = nacl.sign.detached(b64.dec(spk.pub), signKeyFrom(id.sec).secretKey);
     return {
       identityPublicKey: b64.enc(id.pub),
-      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature) },
+      // kemPublicKey (ML-KEM post-quantum) viaggia dentro il blob signed_prekey: nessuna modifica di schema al backend.
+      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: (await ensureKem()).pub },
       registrationId: id.regId,
       // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano su questo dispositivo).
       oneTimePreKeys: mintOneTimePreKeys(OTP_BATCH),
@@ -126,8 +138,9 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     // Il backend consegna UNA one-time prekey non usata: la conserviamo per fonderla nell'handshake.
     const otpRaw = bundle?.oneTimePreKey;
     const otp = otpRaw ? { keyId: otpRaw.keyId ?? otpRaw.key_id, pub: otpRaw.publicKey ?? otpRaw.public_key } : undefined;
+    const kemPub = bundle?.signedPreKey?.kemPublicKey ?? bundle?.signedPreKey?.kem_public_key;
     const p = getPending();
-    p[peer] = { ik, spk: spkPub, otp: otp && otp.keyId != null && otp.pub ? otp : undefined };
+    p[peer] = { ik, spk: spkPub, otp: otp && otp.keyId != null && otp.pub ? otp : undefined, kemPub };
     savePending(p);
     return true;
   });
@@ -139,7 +152,10 @@ export function registerCryptoIpc(ipc: IpcMain): void {
     if (!s) {
       const p = getPending()[peer];
       if (!p) throw new Error(`no session with ${peer} — call buildSession first`);
-      s = initAlice(b64.enc(id.sec), b64.enc(id.pub), p.ik, p.spk, p.otp);
+      // Post-quantum: incapsula verso la chiave KEM del destinatario e fondi il segreto nell'handshake.
+      let pqSecret: string | undefined; let pqCt: string | undefined;
+      if (p.kemPub) { const enc = await kemEncapsulate(p.kemPub); pqCt = enc.ct; pqSecret = enc.ss; }
+      s = initAlice(b64.enc(id.sec), b64.enc(id.pub), p.ik, p.spk, p.otp, pqSecret, pqCt);
     }
     const { header, ct } = drEncrypt(s, plaintext);
     sess[peer] = s; saveSessions(sess);
@@ -164,7 +180,11 @@ export function registerCryptoIpc(ipc: IpcMain): void {
         otpSec = secrets[String(otpId)];
         if (otpSec) { delete secrets[String(otpId)]; drStore.set('otpSecrets', secrets); }
       }
-      s = initBob(b64.enc(id.sec), b64.enc(id.pub), spk.pub, spk.sec, parsed.h, otpSec);
+      // Post-quantum: decapsula il ciphertext ML-KEM con la nostra chiave KEM.
+      let pqSecret: string | undefined;
+      const pqct = (parsed.h as DRHeader).pqct;
+      if (pqct) { try { pqSecret = await kemDecapsulate(pqct, (await ensureKem()).sec); } catch { /* KEM assente */ } }
+      s = initBob(b64.enc(id.sec), b64.enc(id.pub), spk.pub, spk.sec, parsed.h, otpSec, pqSecret);
     }
     const plain = drDecrypt(s, parsed.h, parsed.c);
     sess[peer] = s; saveSessions(sess);

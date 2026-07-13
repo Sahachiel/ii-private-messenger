@@ -19,6 +19,7 @@ import nacl from 'tweetnacl';
 import util from 'tweetnacl-util';
 import { KC, appKv } from './keychain';
 import { initAlice, initBob, drEncrypt, drDecrypt, DRSession, DRHeader } from './doubleRatchet';
+import { kemKeygen, kemEncapsulate, kemDecapsulate } from './pqkem';
 import { usersApi } from './api';
 import { KeyBundle, RemoteKeyBundle, EncryptedPayload } from '../types';
 
@@ -29,10 +30,11 @@ const KV_SESSIONS = 'dr.sessions';  // Record<userId, DRSession>
 const KV_PENDING = 'dr.pending';    // Record<userId, {ik, spk, otp?}> — bundle del peer in attesa di init
 const KV_OTP = 'dr.otpSecrets';     // Record<keyId, secretB64> — one-time prekey (segreti) da consumare
 const KV_OTP_NEXT = 'dr.otpNextId'; // contatore keyId per non riusare mai un id
+const KV_KEM = 'dr.kem';            // { pub, sec } — chiave ML-KEM-768 (post-quantum) del dispositivo
 const OTP_BATCH = 20;               // quante OTP tenere pronte lato server
 const OTP_LOW = 5;                  // sotto questa soglia si rigenera
 
-type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string } };
+type PendingBundle = { ik: string; spk: string; otp?: { keyId: number; pub: string }; kemPub?: string };
 
 interface LocalIdentity { publicKey: Uint8Array; secretKey: Uint8Array; registrationId: number }
 interface SPK { pub: string; sec: string; keyId: number }
@@ -74,6 +76,15 @@ export class SignalService {
     return spk;
   }
 
+  /** Chiave ML-KEM-768 (post-quantum) stabile del dispositivo; il pubblico va nel bundle. */
+  private ensureKem(): { pub: string; sec: string } {
+    const raw = appKv.getString(KV_KEM);
+    if (raw) { try { return JSON.parse(raw) as { pub: string; sec: string }; } catch { /* regen */ } }
+    const kp = kemKeygen();
+    appKv.set(KV_KEM, JSON.stringify(kp));
+    return kp;
+  }
+
   /** Sign-key derivata dal box-secret (coerente con xsec-mtd/attestation). */
   private signKey(): nacl.SignKeyPair {
     const seed = nacl.hash(this.identity!.secretKey).slice(0, 32);
@@ -99,10 +110,13 @@ export class SignalService {
   async generateKeyBundle(): Promise<KeyBundle> {
     await this.initialize();
     const spk = this.ensureSPK();
+    const kem = this.ensureKem();
     const signature = nacl.sign.detached(b64.dec(spk.pub), this.signKey().secretKey);
     return {
       identityPublicKey: b64.enc(this.identity!.publicKey),
-      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature) },
+      // La chiave KEM post-quantum (kemPublicKey) viaggia dentro il blob signed_prekey: nessuna
+      // modifica di schema al backend, che lo conserva e lo restituisce verbatim.
+      signedPreKey: { keyId: spk.keyId, publicKey: spk.pub, signature: b64.enc(signature), kemPublicKey: kem.pub },
       registrationId: this.identity!.registrationId,
       // X3DH COMPLETO: one-time prekey vere e distinte (i segreti restano sul dispositivo).
       oneTimePreKeys: this.mintOneTimePreKeys(OTP_BATCH),
@@ -128,7 +142,8 @@ export class SignalService {
     // Il backend consegna UNA one-time prekey non usata (e la marca usata): la conserviamo per
     // fonderla nell'handshake al primo encrypt.
     const otp = bundle.oneTimePreKey ? { keyId: bundle.oneTimePreKey.keyId, pub: bundle.oneTimePreKey.publicKey } : undefined;
-    pending[remoteUserId] = { ik: bundle.identityPublicKey, spk: bundle.signedPreKey.publicKey, otp };
+    const kemPub = (bundle.signedPreKey as { kemPublicKey?: string }).kemPublicKey;
+    pending[remoteUserId] = { ik: bundle.identityPublicKey, spk: bundle.signedPreKey.publicKey, otp, kemPub };
     saveMap(KV_PENDING, pending);
   }
 
@@ -140,7 +155,11 @@ export class SignalService {
       const pending = loadMap<PendingBundle>(KV_PENDING);
       const p = pending[remoteUserId];
       if (!p) throw new Error(`No session with ${remoteUserId} — call buildSession first`);
-      s = initAlice(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), p.ik, p.spk, p.otp);
+      // Post-quantum: se il destinatario ha una chiave KEM, incapsuliamo e fondiamo il segreto
+      // ML-KEM nell'handshake; il ciphertext va nel primo header.
+      let pqSecret: string | undefined; let pqCt: string | undefined;
+      if (p.kemPub) { const enc = kemEncapsulate(p.kemPub); pqCt = enc.ct; pqSecret = enc.ss; }
+      s = initAlice(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), p.ik, p.spk, p.otp, pqSecret, pqCt);
     }
     const { header, ct } = drEncrypt(s, plaintext);
     sessions[remoteUserId] = s;
@@ -164,7 +183,11 @@ export class SignalService {
         otpSec = secrets[String(parsed.h.otpId)];
         if (otpSec) { delete secrets[String(parsed.h.otpId)]; saveMap(KV_OTP, secrets); void this.replenishIfLow(); }
       }
-      s = initBob(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), spk.pub, spk.sec, parsed.h, otpSec);
+      // Post-quantum: se il mittente ha incluso un ciphertext ML-KEM, decapsuliamo con la nostra
+      // chiave KEM per ricavare lo stesso segreto e fonderlo nell'handshake.
+      let pqSecret: string | undefined;
+      if (parsed.h.pqct) { try { pqSecret = kemDecapsulate(parsed.h.pqct, this.ensureKem().sec); } catch { /* KEM assente/incompatibile */ } }
+      s = initBob(b64.enc(this.identity!.secretKey), b64.enc(this.identity!.publicKey), spk.pub, spk.sec, parsed.h, otpSec, pqSecret);
     }
     const plain = drDecrypt(s, parsed.h, parsed.c);
     sessions[remoteUserId] = s;

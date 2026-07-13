@@ -20,7 +20,7 @@ import util from 'tweetnacl-util';
 const b64 = { enc: util.encodeBase64, dec: util.decodeBase64 };
 const MAX_SKIP = 256;
 
-export interface DRHeader { dh: string; pn: number; n: number; ik: string; otpId?: number }
+export interface DRHeader { dh: string; pn: number; n: number; ik: string; otpId?: number; pqct?: string }
 
 export interface DRSession {
   rk: string;
@@ -30,6 +30,7 @@ export interface DRSession {
   ns: number; nr: number; pn: number;
   ikPub: string;                       // mio IK pubblico (va nell'header per il bootstrap del peer)
   otpId?: number;                      // (initiator) id della one-time prekey usata → nel primo header
+  pqct?: string;                       // (initiator) ciphertext ML-KEM → nel primo header
   skipped: Record<string, string>;     // `${dhrPub}:${n}` → message key b64
 }
 
@@ -67,29 +68,50 @@ function decryptMsg(mk: Uint8Array, packedB64: string): string {
 }
 
 /**
- * X3DH: segreto iniziale. Senza OTP = DH(IK_a, IK_b). Con one-time prekey del destinatario si
- * fonde un secondo DH: SK = H( DH(IK_a,IK_b) || DH(IK_a,OTP_b) )[:32]. Simmetrico: Bob ricava
- * lo stesso valore con DH(OTP_b_sec, IK_a). Questo dà forward secrecy + anti-replay sul PRIMO
- * messaggio (una OTP si usa una volta sola e poi è distrutta).
+ * X3DH ibrido post-quantum (PQXDH-style). Il segreto iniziale fonde in ordine fisso:
+ *   1) DH(IK_a, IK_b)                    — classico, sempre
+ *   2) DH(IK_a, OTP_b)                   — se c'è una one-time prekey (forward secrecy/anti-replay)
+ *   3) shared secret ML-KEM-768          — se il destinatario ha una chiave KEM (post-quantum)
+ * SK = H(parte1 || parte2? || parte3?)[:32]. Post-quantum: anche se in futuro X25519 sarà rotto da
+ * un computer quantistico, la parte ML-KEM protegge l'accordo di chiave iniziale ("harvest now,
+ * decrypt later"). Il ratchet successivo resta X25519 — onestà: è protezione dell'HANDSHAKE (PQXDH),
+ * non dell'intera sessione. Simmetrico: Alice ottiene ss_pq dall'encapsulate, Bob dal decapsulate.
  */
-function x3dhSecret(dhIkIk: Uint8Array, dhIkOtp?: Uint8Array): string {
-  if (!dhIkOtp) return b64.enc(dhIkIk);
-  return b64.enc(nacl.hash(concat(dhIkIk, dhIkOtp)).slice(0, 32));
+function x3dhSecret(dhIkIk: Uint8Array, dhIkOtp?: Uint8Array, pqSecret?: Uint8Array): string {
+  if (!dhIkOtp && !pqSecret) return b64.enc(dhIkIk);
+  let acc = dhIkIk;
+  if (dhIkOtp) acc = concat(acc, dhIkOtp);
+  if (pqSecret) acc = concat(acc, pqSecret);
+  return b64.enc(nacl.hash(acc).slice(0, 32));
 }
 
-/** Initiator (Alice): conosce IK, SignedPreKey e (se disponibile) una one-time prekey del destinatario. */
-export function initAlice(myIKSec: string, myIKPub: string, theirIKPub: string, theirSPKPub: string, theirOTP?: { keyId: number; pub: string }): DRSession {
-  const sk = x3dhSecret(dh(myIKSec, theirIKPub), theirOTP ? dh(myIKSec, theirOTP.pub) : undefined);
+/** Initiator (Alice): IK + SignedPreKey (+ opzionali OTP e segreto/ciphertext ML-KEM del destinatario). */
+export function initAlice(
+  myIKSec: string, myIKPub: string, theirIKPub: string, theirSPKPub: string,
+  theirOTP?: { keyId: number; pub: string }, pqSecret?: string, pqCt?: string,
+): DRSession {
+  const sk = x3dhSecret(
+    dh(myIKSec, theirIKPub),
+    theirOTP ? dh(myIKSec, theirOTP.pub) : undefined,
+    pqSecret ? b64.dec(pqSecret) : undefined,
+  );
   const dhs = nacl.box.keyPair();
   const dhsPub = b64.enc(dhs.publicKey); const dhsSec = b64.enc(dhs.secretKey);
   const { rk, ck } = kdfRK(sk, dh(dhsSec, theirSPKPub));
-  return { rk, dhsPub, dhsSec, dhrPub: theirSPKPub, cks: ck, ckr: null, ns: 0, nr: 0, pn: 0, ikPub: myIKPub, otpId: theirOTP?.keyId, skipped: {} };
+  return { rk, dhsPub, dhsSec, dhrPub: theirSPKPub, cks: ck, ckr: null, ns: 0, nr: 0, pn: 0, ikPub: myIKPub, otpId: theirOTP?.keyId, pqct: pqCt, skipped: {} };
 }
 
-/** Responder (Bob): usa la propria SignedPreKey come keypair iniziale; SK dall'IK nel header (+ OTP se indicata). */
-export function initBob(myIKSec: string, myIKPub: string, mySPKPub: string, mySPKSec: string, header: DRHeader, myOTPSec?: string): DRSession {
+/** Responder (Bob): SignedPreKey come keypair iniziale; SK dall'IK nel header (+ OTP e ss_pq se indicati). */
+export function initBob(
+  myIKSec: string, myIKPub: string, mySPKPub: string, mySPKSec: string, header: DRHeader,
+  myOTPSec?: string, pqSecret?: string,
+): DRSession {
   const useOtp = header.otpId != null && !!myOTPSec;
-  const sk = x3dhSecret(dh(myIKSec, header.ik), useOtp ? dh(myOTPSec as string, header.ik) : undefined);
+  const sk = x3dhSecret(
+    dh(myIKSec, header.ik),
+    useOtp ? dh(myOTPSec as string, header.ik) : undefined,
+    pqSecret ? b64.dec(pqSecret) : undefined,
+  );
   return { rk: sk, dhsPub: mySPKPub, dhsSec: mySPKSec, dhrPub: null, cks: null, ckr: null, ns: 0, nr: 0, pn: 0, ikPub: myIKPub, skipped: {} };
 }
 
@@ -98,9 +120,10 @@ export function drEncrypt(s: DRSession, plaintext: string): { header: DRHeader; 
   const { ck, mk } = kdfCK(s.cks);
   s.cks = ck;
   const header: DRHeader = { dh: s.dhsPub, pn: s.pn, n: s.ns, ik: s.ikPub };
-  // La OTP usata va comunicata SOLO nel primissimo messaggio dell'initiator (Bob la legge in
-  // initBob). Non basta `ns===0` perché ns si azzera a ogni DH-ratchet: usiamo un flag one-shot.
+  // OTP e ciphertext ML-KEM vanno comunicati SOLO nel primissimo messaggio dell'initiator (Bob li
+  // legge in initBob). Non basta `ns===0` perché ns si azzera a ogni DH-ratchet: flag one-shot.
   if (s.otpId != null) { header.otpId = s.otpId; s.otpId = undefined; }
+  if (s.pqct != null) { header.pqct = s.pqct; s.pqct = undefined; }
   s.ns += 1;
   return { header, ct: encryptMsg(mk, plaintext) };
 }

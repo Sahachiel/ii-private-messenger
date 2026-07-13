@@ -12,6 +12,7 @@
     "build:linux": "tsc && electron-builder --linux --publish never"
   },
   "dependencies": {
+    "@noble/post-quantum": "^0.6.1",
     "axios": "^1.6.8",
     "electron-store": "^8.1.0",
     "keytar": "^7.9.0",
