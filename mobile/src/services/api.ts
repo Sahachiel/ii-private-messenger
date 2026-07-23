@@ -20,10 +20,15 @@ const SSL_PINS = [
   // Intermediate ATTUALE della catena live = Let's Encrypt E7 (ECDSA). Il backend è migrato
   // da RSA (R10/R11) a ECDSA (E7): senza questo pin, al rinnovo del leaf (imminente) il pinning
   // fallirebbe e ROMPEREBBE tutto l'HTTPS su Android. Pinnare l'intermediate sopravvive ai renewals.
-  'sha256/y7xVm0TVJNahMr2sZydE2jQH8SquXV9yLF9seROHHHU=', // LE E7 intermediate (ECDSA) — catena live
+  // Intermediate ATTUALE della catena live = Let's Encrypt YE1 (issuer: ISRG Root YE). Dal rinnovo
+  // del 2026-07-23 LE ha ruotato SIA l'intermediate (E7→YE1) SIA la root (ISRG Root X1→Root YE),
+  // quindi i vecchi pin E7/root-X1 non combaciano più. Pinnare l'intermediate YE1 (che il server
+  // presenta sempre nella catena) sopravvive ai rinnovi del leaf. È il pin che regge OGGI.
+  'sha256/brzvtCELCIZUo4sD/qPX0ccRtPsd3DY6RfmxpOU9oB4=', // LE YE1 intermediate (ECDSA) — catena live 2026-07
+  'sha256/y7xVm0TVJNahMr2sZydE2jQH8SquXV9yLF9seROHHHU=', // LE E7 intermediate (ECDSA, legacy)
   'sha256/K7rZOrXHknnsEhUH8nLL4MZkejquUuIvOIr6tCa0rbo=', // LE R10 intermediate (RSA, legacy)
   'sha256/bdrBhpj38ffhxpubzkINl0rG+UyossdhcBYj+Zx2fcc=', // LE R11 intermediate (RSA, legacy)
-  'sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=', // ISRG Root X1
+  'sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=', // ISRG Root X1 (legacy)
 ];
 
 let accessToken: string | null = appKv.getString('auth.accessToken') ?? null;
